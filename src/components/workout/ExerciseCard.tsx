@@ -8,7 +8,7 @@ import { toast } from '../../lib/hooks';
 import { ActionSheet, EmptyState } from '../ui';
 import { ExercisePicker } from '../ExercisePicker';
 import { ExerciseThumbnail } from '../ExerciseMedia';
-import { ExerciseDetailSheet } from '../ExerciseDetail';
+import { ExerciseDetailSheet } from '../ExerciseDetail.tsx';
 
 // ───────────────────────── PR logic ─────────────────────────
 
