@@ -263,13 +263,32 @@ export function Toaster() {
 
 // ───────────────────────── Small building blocks ─────────────────────────
 
-export function PageHeader({ title, subtitle, right }: { title: string; subtitle?: string; right?: ReactNode }) {
+export function PageHeader({
+  title,
+  subtitle,
+  right,
+  showLogo,
+}: {
+  title: string;
+  subtitle?: string;
+  right?: ReactNode;
+  showLogo?: boolean;
+}) {
   return (
     <header className="sticky top-0 z-20 bg-[#09090b]/85 pt-safe backdrop-blur-xl">
       <div className="flex items-end justify-between gap-3 px-5 pt-4 pb-3">
-        <div className="min-w-0">
-          {subtitle && <div className="text-[13px] font-semibold uppercase tracking-wide text-zinc-500">{subtitle}</div>}
-          <h1 className="truncate text-[32px] leading-tight font-bold tracking-tight">{title}</h1>
+        <div className="flex items-center gap-3 min-w-0">
+          {showLogo && (
+            <img
+              src="/icons/icon-192.png"
+              alt="KoyuncuFit"
+              className="h-10 w-10 shrink-0 rounded-xl object-contain border border-white/10 shadow-md shadow-brand/20"
+            />
+          )}
+          <div className="min-w-0">
+            {subtitle && <div className="text-[13px] font-semibold uppercase tracking-wide text-zinc-500">{subtitle}</div>}
+            <h1 className="truncate text-[32px] leading-tight font-bold tracking-tight">{title}</h1>
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 pb-1">{right}</div>
       </div>

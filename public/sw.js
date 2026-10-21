@@ -1,6 +1,17 @@
 /* Offline-first service worker: network-first for pages, stale-while-revalidate for assets. */
-const CACHE = 'lift-v1';
-const SHELL = ['/', '/index.html', '/manifest.json', '/apple-touch-icon.png', '/icons/icon-192.png', '/icons/icon-512.png'];
+const CACHE = 'koyuncufit-v2';
+const SHELL = [
+  '/',
+  '/index.html',
+  '/manifest.json',
+  '/favicon.ico',
+  '/apple-touch-icon.png',
+  '/icons/koyuncufit-logo.png',
+  '/icons/icon-32.png',
+  '/icons/icon-180.png',
+  '/icons/icon-192.png',
+  '/icons/icon-512.png',
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));

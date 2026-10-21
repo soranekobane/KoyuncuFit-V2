@@ -10,7 +10,6 @@ import {
   Plus,
   Search,
   User,
-  Zap,
 } from 'lucide-react';
 import { cn, fmtClock, fmtVolume } from './lib/utils';
 import { liveTotals } from './lib/workout';
@@ -65,8 +64,27 @@ function WorkoutApp() {
   const elapsedSec = w.active ? Math.max(0, (now - w.active.startedAt) / 1000) : 0;
   const activeTotals = w.active ? liveTotals(w.active.exercises) : { volume: 0, sets: 0 };
 
-  // If no user is logged in and not loading, show Auth / Welcome screen
-  if (!isLoading && !currentUser) {
+  // Loading splash screen with official KoyuncuFit brand
+  if (isLoading) {
+    return (
+      <div className="relative mx-auto flex min-h-screen max-w-md flex-col items-center justify-center bg-[#09090b] px-5 py-8 text-zinc-100 antialiased selection:bg-brand/30">
+        <div className="flex flex-col items-center animate-pulse">
+          <img
+            src="/icons/koyuncufit-logo.png"
+            alt="KoyuncuFit"
+            className="h-28 w-28 object-contain drop-shadow-[0_10px_25px_rgba(0,180,255,0.3)] rounded-2xl"
+          />
+          <div className="mt-4 flex items-center gap-2 text-sm font-semibold text-zinc-400">
+            <span className="h-2 w-2 rounded-full bg-brand animate-ping" />
+            Loading KoyuncuFit…
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // If no user is logged in, show Auth / Welcome screen
+  if (!currentUser) {
     return (
       <div className="relative mx-auto flex min-h-screen max-w-md flex-col justify-center bg-[#09090b] px-5 py-8 text-zinc-100 antialiased selection:bg-brand/30">
         <AuthScreen
@@ -116,8 +134,8 @@ function WorkoutApp() {
             className="flex w-full items-center justify-between gap-3 overflow-hidden rounded-2xl border border-brand/40 bg-zinc-900/95 p-3.5 shadow-xl shadow-brand/15 backdrop-blur-xl transition active:scale-[0.99]"
           >
             <div className="flex items-center gap-3 min-w-0">
-              <div className="relative grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand text-white shadow-md shadow-brand/40">
-                <Zap size={20} fill="currentColor" />
+              <div className="relative h-10 w-10 shrink-0 rounded-xl overflow-hidden border border-brand/40 shadow-md shadow-brand/30 bg-[#05070d]">
+                <img src="/icons/icon-192.png" alt="Active" className="h-full w-full object-contain p-0.5" />
                 <span className="absolute -top-1 -right-1 flex h-3 w-3">
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
@@ -360,11 +378,14 @@ function AuthScreen({
   return (
     <div className="space-y-6">
       {/* Brand Header */}
-      <div className="text-center">
-        <div className="mx-auto grid h-20 w-20 place-items-center rounded-3xl bg-gradient-to-tr from-brand to-indigo-600 text-white shadow-xl shadow-brand/30">
-          <Dumbbell size={38} strokeWidth={2.4} />
+      <div className="text-center flex flex-col items-center">
+        <div className="relative mb-2">
+          <img
+            src="/icons/koyuncufit-logo.png"
+            alt="KoyuncuFit Official Logo"
+            className="h-32 w-32 object-contain drop-shadow-[0_12px_30px_rgba(30,112,255,0.3)] rounded-2xl"
+          />
         </div>
-        <h1 className="mt-4 text-[30px] font-black tracking-tight text-zinc-100">KoyuncuFit</h1>
         <p className="mt-1 text-[14px] text-zinc-400 font-medium">
           Social Workout Tracker & Friend Comparison
         </p>

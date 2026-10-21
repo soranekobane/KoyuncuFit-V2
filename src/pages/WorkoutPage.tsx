@@ -66,7 +66,11 @@ export function WorkoutPage({ onGoRoutines, onNewRoutine }: { onGoRoutines: () =
 
   return (
     <div>
-      <PageHeader title="Workout" subtitle={new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' })} />
+      <PageHeader
+        title="Workout"
+        subtitle={new Date().toLocaleDateString('en-US', { weekday: 'long', day: 'numeric', month: 'long' })}
+        showLogo
+      />
 
       <div className="space-y-6 px-4 pt-1">
         {/* Week overview */}
