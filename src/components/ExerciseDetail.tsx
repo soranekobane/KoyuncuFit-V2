@@ -19,7 +19,7 @@ import {
   Trash,
   Trophy,
 } from 'lucide-react';
-import { db, type Exercise, type WorkoutSet } from '../db';
+import { db, type Exercise, type Id, type WorkoutSet } from '../db';
 import {
   cn,
   epley1RM,
@@ -44,7 +44,7 @@ import { CreateExerciseSheet } from './ExercisePicker';
 import { AnimatedDemonstration } from './ExerciseMedia';
 
 interface Session {
-  workoutId: number;
+  workoutId: Id;
   workoutName: string;
   ts: number;
   sets: WorkoutSet[];

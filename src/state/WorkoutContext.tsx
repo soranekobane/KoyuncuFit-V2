@@ -8,9 +8,10 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { db, type Routine, type Workout } from '../db';
+import { type Id, type Routine, type Workout } from '../db';
 import { playRestFinished, unlockAudio } from '../lib/audio';
 import { calculateWorkoutCalories } from '../lib/calories';
+import { cloudSaveWorkout } from '../lib/cloudDb';
 import { useAuth } from './AuthContext';
 import {
   buildFromRoutine,
@@ -23,8 +24,8 @@ import {
   type PRHit,
 } from '../lib/workout';
 
-const getActiveKey = (userId?: number) => `koyuncu.activeWorkout.${userId ?? 'anon'}.v1`;
-const getRestKey = (userId?: number) => `koyuncu.restTimer.${userId ?? 'anon'}.v1`;
+const getActiveKey = (userId?: Id) => `koyuncu.activeWorkout.${userId ?? 'anon'}.v1`;
+const getRestKey = (userId?: Id) => `koyuncu.restTimer.${userId ?? 'anon'}.v1`;
 
 export interface RestState {
   endsAt: number;
@@ -201,12 +202,18 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
       totalSets: totals.totalSets,
       caloriesBurned,
     };
-    const id = await db.workouts.add(data as Workout);
+    const workoutId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `wkt_${Date.now()}`;
+    const finishedWorkout: Workout = {
+      ...data,
+      id: workoutId,
+    };
+    await cloudSaveWorkout(finishedWorkout);
     save(getActiveKey(user.id), null);
     setActive(null);
     setIsOpen(false);
     setRest(null);
-    return { workout: { ...data, id: id as number }, prs };
+    return { workout: finishedWorkout, prs };
   }, []);
 
   const value = useMemo<WorkoutCtx>(

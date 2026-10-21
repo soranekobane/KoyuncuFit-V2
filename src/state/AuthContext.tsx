@@ -8,20 +8,26 @@ import {
   type ReactNode,
 } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, toPublicUser, toSafeUser, type Follow, type PublicUser, type SafeUser } from '../db';
+import { db, toPublicUser, toSafeUser, type Follow, type Id, type PublicUser, type SafeUser } from '../db';
 import { toast } from '../lib/hooks';
 import {
-  authenticate,
-  authenticateById,
   changePin as changePinFn,
-  deleteOwnAccount,
   migrateLegacyPins,
-  registerAccount,
-  updateProfile,
   type ProfilePatch,
   type RegisterInput,
 } from '../lib/auth';
-import { follow, unfollow } from '../lib/social';
+import {
+  cloudDeleteOwnAccount,
+  cloudFetchPublicUsers,
+  cloudFollow,
+  cloudPullUserData,
+  cloudSignIn,
+  cloudSignInById,
+  cloudSignUp,
+  cloudUnfollow,
+  cloudUpdateProfile,
+} from '../lib/cloudDb';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 const ACTIVE_USER_ID_KEY = 'koyuncu.activeUserId.v1';
 const LEGACY_ACTIVE_USER_ID_KEY = 'lift.activeUserId.v1';
@@ -29,25 +35,27 @@ const LEGACY_ACTIVE_USER_ID_KEY = 'lift.activeUserId.v1';
 export interface AuthContextValue {
   /** The signed-in account (no credential fields). */
   currentUser: SafeUser | null;
-  /** Directory of accounts on this device — public fields only (no PINs, no body measurements). */
+  /** Directory of registered athletes — public fields only (no credentials, no body measurements). */
   users: PublicUser[];
   isLoading: boolean;
+  isCloudConfigured: boolean;
   login: (username: string, pin?: string) => Promise<SafeUser>;
   logout: () => void;
   /** Switch into another account. Requires that account's PIN. */
-  switchUser: (userId: number, pin?: string) => Promise<void>;
+  switchUser: (userId: Id, pin?: string) => Promise<void>;
   updateBiometrics: (patch: ProfilePatch) => Promise<void>;
   changePin: (currentPin: string | undefined, newPin: string) => Promise<void>;
   registerUser: (data: RegisterInput) => Promise<SafeUser>;
   /** Deletes the signed-in user's own account (PIN required). */
-  deleteUser: (userId: number, pin?: string) => Promise<void>;
+  deleteUser: (userId: Id, pin?: string) => Promise<void>;
   // Social Follows
   follows: Follow[];
-  followUser: (targetId: number) => Promise<void>;
-  unfollowUser: (targetId: number) => Promise<void>;
-  isFollowing: (targetId: number) => boolean;
-  getFollowersCount: (userId: number) => number;
-  getFollowingCount: (userId: number) => number;
+  followUser: (targetId: Id) => Promise<void>;
+  unfollowUser: (targetId: Id) => Promise<void>;
+  isFollowing: (targetId: Id) => boolean;
+  getFollowersCount: (userId: Id) => number;
+  getFollowingCount: (userId: Id) => number;
+  refreshUsers: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -55,24 +63,38 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const rawUsers = useLiveQuery(() => db.users.toArray(), []);
   const follows = useLiveQuery<Follow[]>(() => db.follows.toArray(), []) ?? [];
-  const [activeUserId, setActiveUserId] = useState<number | null>(null);
+  const [activeUserId, setActiveUserId] = useState<Id | null>(null);
+  const [cloudUsers, setCloudUsers] = useState<PublicUser[]>([]);
   const [initialized, setInitialized] = useState(false);
 
-  // Restore the persisted session (if the account still exists). Never auto-creates users.
+  // Restore the persisted session (if the account still exists).
   useEffect(() => {
     async function init() {
       try {
         await migrateLegacyPins();
         const saved = localStorage.getItem(ACTIVE_USER_ID_KEY) || localStorage.getItem(LEGACY_ACTIVE_USER_ID_KEY);
         localStorage.removeItem(LEGACY_ACTIVE_USER_ID_KEY);
-        const found = saved ? await db.users.get(parseInt(saved, 10)) : undefined;
-        if (found) {
-          setActiveUserId(found.id);
-          localStorage.setItem(ACTIVE_USER_ID_KEY, String(found.id));
-        } else {
-          localStorage.removeItem(ACTIVE_USER_ID_KEY);
+        if (saved) {
+          const found =
+            (await db.users.get(saved as unknown as any)) ||
+            (await db.users.get(parseInt(saved, 10) as unknown as any));
+
+          if (found) {
+            setActiveUserId(found.id);
+            localStorage.setItem(ACTIVE_USER_ID_KEY, String(found.id));
+            void cloudPullUserData(found.id);
+          } else {
+            localStorage.removeItem(ACTIVE_USER_ID_KEY);
+          }
         }
-      } catch {
+
+        // Fetch cloud user directory
+        const list = await cloudFetchPublicUsers();
+        if (list && list.length > 0) {
+          setCloudUsers(list);
+        }
+      } catch (err) {
+        console.warn('Auth init warning:', err);
         setActiveUserId(null);
       } finally {
         setInitialized(true);
@@ -81,27 +103,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void init();
   }, []);
 
-  const users = useMemo(() => (rawUsers ?? []).map(toPublicUser), [rawUsers]);
+  const refreshUsers = useCallback(async () => {
+    try {
+      const list = await cloudFetchPublicUsers();
+      if (list && list.length > 0) {
+        setCloudUsers(list);
+      }
+    } catch (err) {
+      console.warn('refreshUsers warning:', err);
+    }
+  }, []);
+
+  const users = useMemo(() => {
+    const local = (rawUsers ?? []).map(toPublicUser);
+    if (!cloudUsers.length) return local;
+
+    // Merge cloud and local uniquely by id
+    const map = new Map<string, PublicUser>();
+    for (const u of cloudUsers) map.set(String(u.id), u);
+    for (const u of local) map.set(String(u.id), u);
+    return Array.from(map.values());
+  }, [rawUsers, cloudUsers]);
 
   const currentUser = useMemo(() => {
     if (!activeUserId || !rawUsers) return null;
-    const u = rawUsers.find((x) => x.id === activeUserId);
+    const u = rawUsers.find((x) => String(x.id) === String(activeUserId));
     return u ? toSafeUser(u) : null;
   }, [rawUsers, activeUserId]);
 
-  const startSession = useCallback((id: number) => {
+  const startSession = useCallback((id: Id) => {
     setActiveUserId(id);
     localStorage.setItem(ACTIVE_USER_ID_KEY, String(id));
   }, []);
 
   const login = useCallback(
     async (username: string, pin?: string) => {
-      const user = await authenticate(username, pin);
+      const user = await cloudSignIn(username, pin || '');
       startSession(user.id);
+      void refreshUsers();
       toast(`Welcome back, ${user.name}!`, 'success');
       return user;
     },
-    [startSession],
+    [startSession, refreshUsers],
   );
 
   const logout = useCallback(() => {
@@ -111,8 +154,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const switchUser = useCallback(
-    async (userId: number, pin?: string) => {
-      const user = await authenticateById(userId, pin);
+    async (userId: Id, pin?: string) => {
+      const user = await cloudSignInById(userId, pin);
       startSession(user.id);
       toast(`Signed in as ${user.name}`, 'info');
     },
@@ -122,10 +165,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateBiometrics = useCallback(
     async (patch: ProfilePatch) => {
       if (!activeUserId) return;
-      await updateProfile(activeUserId, patch);
+      await cloudUpdateProfile(activeUserId, patch);
+      void refreshUsers();
       toast('Profile updated', 'success');
     },
-    [activeUserId],
+    [activeUserId, refreshUsers],
   );
 
   const changePin = useCallback(
@@ -139,55 +183,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const registerUser = useCallback(
     async (data: RegisterInput) => {
-      const user = await registerAccount(data);
+      const user = await cloudSignUp(data);
       startSession(user.id);
+      void refreshUsers();
       toast(`Welcome to KoyuncuFit, ${user.name}!`, 'success');
       return user;
     },
-    [startSession],
+    [startSession, refreshUsers],
   );
 
   const deleteUser = useCallback(
-    async (userId: number, pin?: string) => {
+    async (userId: Id, pin?: string) => {
       if (!activeUserId) throw new Error('Not signed in.');
-      await deleteOwnAccount(activeUserId, userId, pin);
+      await cloudDeleteOwnAccount(activeUserId, userId, pin);
       setActiveUserId(null);
       localStorage.removeItem(ACTIVE_USER_ID_KEY);
+      void refreshUsers();
       toast('Account deleted', 'info');
     },
-    [activeUserId],
+    [activeUserId, refreshUsers],
   );
 
   const followUser = useCallback(
-    async (targetId: number) => {
+    async (targetId: Id) => {
       if (!activeUserId) return;
-      if (await follow(activeUserId, targetId)) toast('Following athlete', 'success');
+      if (await cloudFollow(activeUserId, targetId)) {
+        toast('Following athlete', 'success');
+      }
     },
     [activeUserId],
   );
 
   const unfollowUser = useCallback(
-    async (targetId: number) => {
+    async (targetId: Id) => {
       if (!activeUserId) return;
-      await unfollow(activeUserId, targetId);
+      await cloudUnfollow(activeUserId, targetId);
       toast('Unfollowed', 'info');
     },
     [activeUserId],
   );
 
   const isFollowing = useCallback(
-    (targetId: number) =>
-      !!activeUserId && follows.some((f) => f.followerId === activeUserId && f.followingId === targetId),
+    (targetId: Id) =>
+      !!activeUserId &&
+      follows.some((f) => String(f.followerId) === String(activeUserId) && String(f.followingId) === String(targetId)),
     [activeUserId, follows],
   );
 
   const getFollowersCount = useCallback(
-    (userId: number) => follows.filter((f) => f.followingId === userId).length,
+    (userId: Id) => follows.filter((f) => String(f.followingId) === String(userId)).length,
     [follows],
   );
 
   const getFollowingCount = useCallback(
-    (userId: number) => follows.filter((f) => f.followerId === userId).length,
+    (userId: Id) => follows.filter((f) => String(f.followerId) === String(userId)).length,
     [follows],
   );
 
@@ -196,6 +245,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       currentUser,
       users,
       isLoading: !initialized || rawUsers === undefined,
+      isCloudConfigured: isSupabaseConfigured(),
       login,
       logout,
       switchUser,
@@ -209,6 +259,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isFollowing,
       getFollowersCount,
       getFollowingCount,
+      refreshUsers,
     }),
     [
       currentUser,
@@ -228,6 +279,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       isFollowing,
       getFollowersCount,
       getFollowingCount,
+      refreshUsers,
     ],
   );
 

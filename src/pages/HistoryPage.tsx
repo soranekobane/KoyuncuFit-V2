@@ -12,6 +12,7 @@ import {
   Weight,
 } from 'lucide-react';
 import { db, exportBackup, importBackup, type Workout } from '../db';
+import { cloudDeleteWorkout, cloudSaveWorkout } from '../lib/cloudDb';
 import {
   downloadJSON,
   fmtDate,
@@ -74,13 +75,14 @@ export function HistoryPage() {
   }, [workouts]);
 
   const handleDelete = (w: Workout) => {
+    if (!currentUser) return;
     setAlert({
       title: 'Delete workout log?',
       message: `“${w.name}” from ${fmtDate(w.startedAt)} will be deleted. This cannot be undone.`,
       confirmLabel: 'Delete',
       destructive: true,
       onConfirm: async () => {
-        await db.workouts.delete(w.id);
+        await cloudDeleteWorkout(w.id, currentUser.id);
         toast('Workout deleted', 'info');
       },
     });
@@ -344,14 +346,16 @@ function EditWorkoutBody({
         return;
       }
       const totals = totalsOf(workoutExercises);
-      await db.workouts.update(workout.id, {
+      const updatedWorkout: Workout = {
+        ...workout,
         name: name.trim() || 'Workout',
         notes: notes.trim(),
         exercises: workoutExercises,
         exerciseIds: Array.from(new Set(workoutExercises.map((e) => e.exerciseId))),
         totalVolume: totals.totalVolume,
         totalSets: totals.totalSets,
-      });
+      };
+      await cloudSaveWorkout(updatedWorkout);
       toast('Workout updated', 'success');
       onClose();
     } catch {

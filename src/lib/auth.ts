@@ -6,7 +6,7 @@
  * NOT a server-side security boundary — anyone with devtools on the same device can read
  * IndexedDB. Cross-device accounts and backend-enforced access control require a server.
  */
-import { db, toSafeUser, userHasPin, type SafeUser, type User } from '../db';
+import { db, toSafeUser, userHasPin, type Id, type SafeUser, type User } from '../db';
 
 export const MIN_PIN_LENGTH = 4;
 const PBKDF2_ITERATIONS = 100_000;
@@ -150,13 +150,13 @@ export async function authenticate(username: string, pin: string | undefined): P
 }
 
 /** Authorise switching into `userId` — requires that account's PIN. */
-export async function authenticateById(userId: number, pin: string | undefined): Promise<SafeUser> {
+export async function authenticateById(userId: Id, pin: string | undefined): Promise<SafeUser> {
   const user = await db.users.get(userId);
   if (!user || !(await verifyPin(user, pin))) throw new Error('Incorrect Password / PIN.');
   return toSafeUser(user);
 }
 
-export async function updateProfile(actorId: number, patch: ProfilePatch): Promise<void> {
+export async function updateProfile(actorId: Id, patch: ProfilePatch): Promise<void> {
   const allowed: ProfilePatch = {};
   const keys: (keyof ProfilePatch)[] = [
     'name', 'gender', 'age', 'weightKg', 'heightCm', 'bodyFatPercentage', 'avatarColor', 'shareWorkouts', 'shareRoutines',
@@ -165,7 +165,7 @@ export async function updateProfile(actorId: number, patch: ProfilePatch): Promi
   await db.users.update(actorId, allowed);
 }
 
-export async function changePin(actorId: number, currentPin: string | undefined, newPin: string): Promise<void> {
+export async function changePin(actorId: Id, currentPin: string | undefined, newPin: string): Promise<void> {
   const user = await db.users.get(actorId);
   if (!user) throw new Error('Account not found.');
   if (!(await verifyPin(user, currentPin))) throw new Error('Current Password / PIN is incorrect.');
@@ -176,7 +176,7 @@ export async function changePin(actorId: number, currentPin: string | undefined,
 }
 
 /** Users may only delete their OWN account, and must confirm with their PIN. */
-export async function deleteOwnAccount(actorId: number, targetId: number, pin: string | undefined): Promise<void> {
+export async function deleteOwnAccount(actorId: Id, targetId: Id, pin: string | undefined): Promise<void> {
   if (actorId !== targetId) throw new Error('You can only delete your own account.');
   const user = await db.users.get(targetId);
   if (!user) return;

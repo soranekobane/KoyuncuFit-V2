@@ -17,6 +17,7 @@ import {
 import { db, type Exercise, type Routine, type RoutineExercise } from '../db';
 import { fmtRest, REST_OPTIONS, sanitizeInt, uid } from '../lib/utils';
 import { toast } from '../lib/hooks';
+import { cloudDeleteRoutine, cloudSaveRoutine } from '../lib/cloudDb';
 import { useWorkout } from '../state/WorkoutContext';
 import { useAuth } from '../state/AuthContext';
 import {
@@ -89,7 +90,10 @@ export function RoutinesPage({
       return;
     }
     const nextOrder = routines?.length ?? 0;
-    const newRoutine: Omit<Routine, 'id'> = {
+    const newRoutineId =
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `rtn_${Date.now()}`;
+    const newRoutine: Routine = {
+      id: newRoutineId,
       userId: currentUser.id,
       name: `${routine.name} (Copy)`,
       order: nextOrder,
@@ -100,18 +104,19 @@ export function RoutinesPage({
         uid: uid(),
       })),
     };
-    await db.routines.add(newRoutine as Routine);
+    await cloudSaveRoutine(newRoutine);
     toast(`Duplicated “${routine.name}”`, 'success');
   };
 
   const handleDelete = (routine: Routine) => {
+    if (!currentUser) return;
     setAlert({
       title: `Delete “${routine.name}”?`,
       message: 'This routine template will be permanently removed. Your past workout history will not be affected.',
       confirmLabel: 'Delete Routine',
       destructive: true,
       onConfirm: async () => {
-        await db.routines.delete(routine.id);
+        await cloudDeleteRoutine(routine.id, currentUser.id);
         toast('Routine deleted', 'info');
       },
     });
@@ -391,11 +396,13 @@ function RoutineBuilderBody({
     }
 
     if (routine) {
-      await db.routines.update(routine.id, {
+      const updated: Routine = {
+        ...routine,
         name: trimmedName,
         exercises,
         updatedAt: Date.now(),
-      });
+      };
+      await cloudSaveRoutine(updated);
       toast('Routine updated', 'success');
     } else {
       if (!currentUser) {
@@ -403,14 +410,18 @@ function RoutineBuilderBody({
         return;
       }
       const count = await db.routines.where('userId').equals(currentUser.id).count();
-      await db.routines.add({
+      const newId =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `rtn_${Date.now()}`;
+      const created: Routine = {
+        id: newId,
         userId: currentUser.id,
         name: trimmedName,
         exercises,
         order: count,
         createdAt: Date.now(),
         updatedAt: Date.now(),
-      } as Routine);
+      };
+      await cloudSaveRoutine(created);
       toast('Routine created', 'success');
     }
     onClose();

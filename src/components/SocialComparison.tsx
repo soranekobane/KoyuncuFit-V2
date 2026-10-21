@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import {
   ArrowLeftRight,
@@ -21,7 +21,8 @@ import {
   Tooltip,
   XAxis,
 } from 'recharts';
-import { db, type PublicUser, type Routine, type Workout } from '../db';
+import { db, type Id, type PublicUser, type Routine, type Workout } from '../db';
+import { cloudFetchFriendRoutines, cloudFetchFriendWorkouts } from '../lib/cloudDb';
 import {
   cn,
   epley1RM,
@@ -100,14 +101,20 @@ export function UserDirectoryModal({
   onSelectCompare?: (friend: PublicUser) => void;
   onOpenFriendProfile?: (friend: PublicUser) => void;
 }) {
-  const { currentUser, users, isFollowing, followUser, unfollowUser, getFollowersCount, getFollowingCount } =
+  const { currentUser, users, isFollowing, followUser, unfollowUser, getFollowersCount, getFollowingCount, refreshUsers } =
     useAuth();
   const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (open) {
+      void refreshUsers();
+    }
+  }, [open, refreshUsers]);
 
   // All workouts mapped by userId for count display
   const allWorkouts = useLiveQuery(() => db.workouts.toArray(), []) ?? [];
   const workoutCountsByUser = useMemo(() => {
-    const map = new Map<number, number>();
+    const map = new Map<Id, number>();
     for (const w of allWorkouts) {
       map.set(w.userId, (map.get(w.userId) || 0) + 1);
     }
@@ -314,7 +321,7 @@ export function CompareStrengthModal({
   initialFriend?: PublicUser | null;
 }) {
   const { currentUser, users } = useAuth();
-  const [selectedFriendId, setSelectedFriendId] = useState<number | null>(() => initialFriend?.id ?? null);
+  const [selectedFriendId, setSelectedFriendId] = useState<Id | null>(() => initialFriend?.id ?? null);
   const [selectedExerciseName, setSelectedExerciseName] = useState<string>('Bench Press (Barbell)');
   const [exercisePickerOpen, setExercisePickerOpen] = useState(false);
 
@@ -339,6 +346,12 @@ export function CompareStrengthModal({
       null
     );
   }, [exercises, selectedExerciseName]);
+
+  useEffect(() => {
+    if (open && selectedFriend && selectedFriend.shareWorkouts !== false) {
+      void cloudFetchFriendWorkouts(selectedFriend.id);
+    }
+  }, [open, selectedFriend?.id, selectedFriend?.shareWorkouts]);
 
   // Load user workouts
   const userWorkouts = useLiveQuery<Workout[]>(
@@ -811,6 +824,22 @@ export function FriendProfileModal({
   const { isFollowing, followUser, unfollowUser, getFollowersCount, getFollowingCount } = useAuth();
 
   const canSeeWorkouts = friend?.shareWorkouts !== false;
+  const canSeeRoutines = friend?.shareRoutines === true;
+  const [cloudRoutines, setCloudRoutines] = useState<Routine[] | null>(null);
+
+  useEffect(() => {
+    if (friend && open) {
+      if (canSeeWorkouts) {
+        void cloudFetchFriendWorkouts(friend.id);
+      }
+      if (canSeeRoutines) {
+        void cloudFetchFriendRoutines(friend.id).then((r) => {
+          if (r) setCloudRoutines(r);
+        });
+      }
+    }
+  }, [friend?.id, open, canSeeWorkouts, canSeeRoutines]);
+
   // Load friend's workouts
   const workouts = useLiveQuery<Workout[]>(
     async () => {
@@ -820,15 +849,16 @@ export function FriendProfileModal({
     [friend?.id, canSeeWorkouts],
   );
 
-  const canSeeRoutines = friend?.shareRoutines === true;
   // Load friend's public routines
-  const routines = useLiveQuery<Routine[]>(
+  const localRoutines = useLiveQuery<Routine[]>(
     async () => {
       if (!friend || !canSeeRoutines) return [];
       return db.routines.where('userId').equals(friend.id).sortBy('order');
     },
     [friend?.id, canSeeRoutines],
   );
+
+  const routines = cloudRoutines ?? localRoutines;
 
   const following = friend ? isFollowing(friend.id) : false;
   const followersCount = friend ? getFollowersCount(friend.id) : 0;

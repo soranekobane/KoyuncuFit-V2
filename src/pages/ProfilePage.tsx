@@ -30,7 +30,8 @@ import {
   Tooltip,
   XAxis,
 } from 'recharts';
-import { db, exportBackup, importBackup, type PublicUser, type SafeUser, type Workout } from '../db';
+import { db, exportBackup, importBackup, type Id, type PublicUser, type SafeUser, type Workout } from '../db';
+import { cloudDeleteWorkout, cloudSaveWorkout } from '../lib/cloudDb';
 import { type ProfilePatch, type RegisterInput } from '../lib/auth';
 import {
   UserDirectoryModal,
@@ -87,6 +88,7 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
     logout,
     getFollowersCount,
     getFollowingCount,
+    isCloudConfigured,
   } = useAuth();
 
   // Load all workouts for the current user
@@ -241,13 +243,14 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
   }, [workouts, allExercises]);
 
   const handleDeleteWorkout = (w: Workout) => {
+    if (!currentUser) return;
     setAlert({
       title: 'Delete workout log?',
       message: `“${w.name}” from ${fmtDate(w.startedAt)} will be deleted. This cannot be undone.`,
       confirmLabel: 'Delete',
       destructive: true,
       onConfirm: async () => {
-        await db.workouts.delete(w.id);
+        await cloudDeleteWorkout(w.id, currentUser.id);
         toast('Workout deleted', 'info');
       },
     });
@@ -308,6 +311,12 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
                   <div className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-0.5 text-[11px] font-semibold text-brand">
                     <Flame size={12} /> {totalWorkouts} Workouts
                   </div>
+                  {isCloudConfigured && (
+                    <div className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-400 border border-emerald-500/20">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Supabase Cloud
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 text-[12px] text-zinc-400">
                     <button
                       onClick={() => setSocialDirectoryOpen(true)}
@@ -1045,9 +1054,9 @@ function AccountSwitcherSheet({
   onClose: () => void;
   users: PublicUser[];
   currentUser: SafeUser | null;
-  onSwitch: (id: number, pin?: string) => Promise<void>;
+  onSwitch: (id: Id, pin?: string) => Promise<void>;
   onRegister: (data: RegisterInput) => Promise<SafeUser>;
-  onDelete: (id: number, pin?: string) => Promise<void>;
+  onDelete: (id: Id, pin?: string) => Promise<void>;
   onLogout?: () => void;
 }) {
   const [creating, setCreating] = useState(false);
@@ -1686,14 +1695,16 @@ function EditWorkoutBody({
         return;
       }
       const totals = totalsOf(workoutExercises);
-      await db.workouts.update(workout.id, {
+      const updatedWorkout: Workout = {
+        ...workout,
         name: name.trim() || 'Workout',
         notes: notes.trim(),
         exercises: workoutExercises,
         exerciseIds: Array.from(new Set(workoutExercises.map((e) => e.exerciseId))),
         totalVolume: totals.totalVolume,
         totalSets: totals.totalSets,
-      });
+      };
+      await cloudSaveWorkout(updatedWorkout);
       toast('Workout updated', 'success');
       onClose();
     } catch {

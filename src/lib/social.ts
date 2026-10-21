@@ -7,14 +7,14 @@
  *
  * Device-local only — see the note at the top of lib/auth.ts.
  */
-import { db, toPublicUser, type PublicUser, type Routine, type User, type Workout } from '../db';
+import { db, toPublicUser, type Id, type PublicUser, type Routine, type User, type Workout } from '../db';
 import { epley1RM, fmtNum, isWorkingSet } from './utils';
 
-export function canViewWorkouts(viewerId: number, owner: Pick<User, 'id' | 'shareWorkouts'>): boolean {
+export function canViewWorkouts(viewerId: Id, owner: Pick<User, 'id' | 'shareWorkouts'>): boolean {
   return viewerId === owner.id || owner.shareWorkouts !== false;
 }
 
-export function canViewRoutines(viewerId: number, owner: Pick<User, 'id' | 'shareRoutines'>): boolean {
+export function canViewRoutines(viewerId: Id, owner: Pick<User, 'id' | 'shareRoutines'>): boolean {
   return viewerId === owner.id || owner.shareRoutines === true;
 }
 
@@ -22,23 +22,23 @@ export async function listPublicUsers(): Promise<PublicUser[]> {
   return (await db.users.toArray()).map(toPublicUser);
 }
 
-export async function getVisibleWorkouts(viewerId: number, ownerId: number): Promise<Workout[] | null> {
+export async function getVisibleWorkouts(viewerId: Id, ownerId: Id): Promise<Workout[] | null> {
   const owner = await db.users.get(ownerId);
   if (!owner || !canViewWorkouts(viewerId, owner)) return null;
   const list = await db.workouts.where('userId').equals(ownerId).toArray();
   return list.sort((a, b) => b.startedAt - a.startedAt);
 }
 
-export async function getVisibleRoutines(viewerId: number, ownerId: number): Promise<Routine[] | null> {
+export async function getVisibleRoutines(viewerId: Id, ownerId: Id): Promise<Routine[] | null> {
   const owner = await db.users.get(ownerId);
   if (!owner || !canViewRoutines(viewerId, owner)) return null;
   return db.routines.where('userId').equals(ownerId).sortBy('order');
 }
 
 /** Workout counts per user; `null` when that athlete keeps workouts private. */
-export async function getVisibleWorkoutCounts(viewerId: number): Promise<Map<number, number | null>> {
+export async function getVisibleWorkoutCounts(viewerId: Id): Promise<Map<Id, number | null>> {
   const users = await db.users.toArray();
-  const out = new Map<number, number | null>();
+  const out = new Map<Id, number | null>();
   for (const u of users) {
     out.set(u.id, canViewWorkouts(viewerId, u) ? await db.workouts.where('userId').equals(u.id).count() : null);
   }
@@ -47,20 +47,20 @@ export async function getVisibleWorkoutCounts(viewerId: number): Promise<Map<num
 
 // ───────────────────────── Follows ─────────────────────────
 
-export async function follow(viewerId: number, targetId: number): Promise<boolean> {
+export async function follow(viewerId: Id, targetId: Id): Promise<boolean> {
   if (viewerId === targetId) return false;
   if (!(await db.users.get(targetId))) throw new Error('Athlete not found.');
   const existing = await db.follows.where({ followerId: viewerId, followingId: targetId }).first();
   if (existing) return false;
-  await db.follows.add({ followerId: viewerId, followingId: targetId, createdAt: Date.now() });
+  await db.follows.add({ followerId: viewerId, followingId: targetId, createdAt: Date.now() } as unknown as any);
   return true;
 }
 
-export async function unfollow(viewerId: number, targetId: number): Promise<void> {
+export async function unfollow(viewerId: Id, targetId: Id): Promise<void> {
   await db.follows.where({ followerId: viewerId, followingId: targetId }).delete();
 }
 
-export async function followCounts(userId: number): Promise<{ followers: number; following: number }> {
+export async function followCounts(userId: Id): Promise<{ followers: number; following: number }> {
   const [followers, following] = await Promise.all([
     db.follows.where('followingId').equals(userId).count(),
     db.follows.where('followerId').equals(userId).count(),

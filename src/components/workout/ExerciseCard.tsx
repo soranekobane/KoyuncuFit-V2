@@ -1,7 +1,7 @@
 import { memo, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { ArrowDown, ArrowUp, Check, Dumbbell, Ellipsis, Plus, Replace, StickyNote, Timer, Trash, Trophy } from 'lucide-react';
-import { db, type Exercise, type WorkoutSet } from '../../db';
+import { db, type Exercise, type Id, type WorkoutSet } from '../../db';
 import { bestsFromWorkouts, cn, epley1RM, fmtNum, fmtRest, REST_OPTIONS, sanitizeDecimal, sanitizeInt, type ExerciseBests } from '../../lib/utils';
 import { matchPrevious, newSet, parseNum, SET_TYPE_CYCLE, setLabels, type ActiveExercise, type ActiveSet } from '../../lib/workout';
 import { toast } from '../../lib/hooks';
@@ -179,7 +179,7 @@ interface CardProps {
   count: number;
   live: boolean;
   beforeTs: number;
-  excludeWorkoutId?: number;
+  excludeWorkoutId?: Id;
   onChange: (uid: string, fn: (e: ActiveExercise) => ActiveExercise) => void;
   onRemove: (uid: string) => void;
   onReplace: (uid: string) => void;
@@ -343,7 +343,7 @@ interface EditorProps {
   onChange: (fn: (list: ActiveExercise[]) => ActiveExercise[]) => void;
   live: boolean;
   beforeTs: number;
-  excludeWorkoutId?: number;
+  excludeWorkoutId?: Id;
   onSetCompleted?: (ex: ActiveExercise) => void;
   onAddExercises: (exs: Exercise[]) => void;
 }

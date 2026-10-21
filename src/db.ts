@@ -8,9 +8,10 @@ export const EQUIPMENT = ['Barbell', 'Dumbbell', 'Machine', 'Cable', 'Bodyweight
 export type MuscleGroup = (typeof MUSCLE_GROUPS)[number];
 export type Equipment = (typeof EQUIPMENT)[number];
 export type SetType = 'normal' | 'warmup' | 'drop' | 'failure';
+export type Id = string | number;
 
 export interface User {
-  id: number;
+  id: Id;
   username: string;
   name: string;
   /** @deprecated Legacy plaintext PIN. Migrated to pinHash on first launch/login; never written by new code. */
@@ -37,7 +38,7 @@ export type SafeUser = Omit<User, 'pin' | 'pinHash' | 'pinSalt'> & { hasPin: boo
 
 /** What other athletes may see in the directory. No credentials, no body measurements. */
 export interface PublicUser {
-  id: number;
+  id: Id;
   username: string;
   name: string;
   avatarColor: string;
@@ -95,8 +96,8 @@ export interface RoutineExercise {
 }
 
 export interface Routine {
-  id: number;
-  userId: number;
+  id: Id;
+  userId: Id;
   name: string;
   exercises: RoutineExercise[];
   order: number;
@@ -123,10 +124,10 @@ export interface WorkoutExercise {
 }
 
 export interface Workout {
-  id: number;
-  userId: number;
+  id: Id;
+  userId: Id;
   name: string;
-  routineId?: number;
+  routineId?: Id;
   startedAt: number;
   endedAt: number;
   durationSec: number;
@@ -140,9 +141,9 @@ export interface Workout {
 }
 
 export interface Follow {
-  id: number;
-  followerId: number;
-  followingId: number;
+  id: Id;
+  followerId: Id;
+  followingId: Id;
   createdAt: number;
 }
 
@@ -1322,7 +1323,7 @@ export interface BackupFile {
 }
 
 /** Export ONE account's data. Never includes other accounts or PIN material. */
-export async function exportBackup(userId: number): Promise<BackupFile> {
+export async function exportBackup(userId: Id): Promise<BackupFile> {
   const [user, exercises, routines, workouts] = await Promise.all([
     db.users.get(userId),
     db.exercises.toArray(),
@@ -1351,7 +1352,7 @@ export async function exportBackup(userId: number): Promise<BackupFile> {
  */
 export async function importBackup(
   data: unknown,
-  userId: number,
+  userId: Id,
 ): Promise<{ workouts: number; routines: number; exercises: number; skipped: number }> {
   const d = data as Partial<BackupFile>;
   if (!d || typeof d !== 'object' || !Array.isArray(d.exercises) || !Array.isArray(d.workouts) || !Array.isArray(d.routines)) {

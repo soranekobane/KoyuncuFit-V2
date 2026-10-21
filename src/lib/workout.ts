@@ -1,4 +1,4 @@
-import { db, type Equipment, type Exercise, type MuscleGroup, type Routine, type SetType, type Workout, type WorkoutExercise, type WorkoutSet } from '../db';
+import { db, type Equipment, type Exercise, type Id, type MuscleGroup, type Routine, type SetType, type Workout, type WorkoutExercise, type WorkoutSet } from '../db';
 import { bestsFromWorkouts, epley1RM, isWorkingSet, setVolume, uid } from './utils';
 
 // ───────────── In-progress (editable) workout model ─────────────
@@ -27,7 +27,7 @@ export interface ActiveExercise {
 
 export interface ActiveWorkout {
   name: string;
-  routineId?: number;
+  routineId?: Id;
   startedAt: number;
   notes: string;
   exercises: ActiveExercise[];
@@ -156,8 +156,8 @@ export interface PRHit {
 export async function detectPRs(
   exs: WorkoutExercise[],
   before: number,
-  excludeId?: number,
-  userId?: number,
+  excludeId?: Id,
+  userId?: Id,
 ): Promise<PRHit[]> {
   const hits: PRHit[] = [];
   for (const ex of exs) {

@@ -22,7 +22,7 @@ import {
   type FinishResult,
 } from './state/WorkoutContext';
 import { PrimaryButton, Toaster } from './components/ui';
-import { type PublicUser } from './db';
+import { type Id, type PublicUser } from './db';
 import { type RegisterInput } from './lib/auth';
 import {
   ActiveWorkoutScreen,
@@ -278,7 +278,7 @@ function AuthScreen({
   onRegister,
 }: {
   users: PublicUser[];
-  onSwitch: (id: number, pin?: string) => Promise<void>;
+  onSwitch: (id: Id, pin?: string) => Promise<void>;
   onLogin: (username: string, pin?: string) => Promise<unknown>;
   onRegister: (data: RegisterInput) => Promise<unknown>;
 }) {
