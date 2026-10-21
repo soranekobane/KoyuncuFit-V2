@@ -148,10 +148,11 @@ function DetailBody({ exercise }: { exercise: Exercise }) {
   const { currentUser } = useAuth();
 
   const sessions = useLiveQuery(async () => {
-    const ws = await db.workouts
+    const list = await db.workouts
       .where('exerciseIds')
       .equals(exercise.id)
       .toArray();
+    const ws = list.filter((w) => !currentUser || w.userId === currentUser.id);
     ws.sort((a, b) => a.startedAt - b.startedAt);
     return ws.map<Session>((w) => {
       const sets = w.exercises.filter((e) => e.exerciseId === exercise.id).flatMap((e) => e.sets);
@@ -190,7 +191,7 @@ function DetailBody({ exercise }: { exercise: Exercise }) {
         bestSet,
       };
     });
-  }, [exercise.id]);
+  }, [exercise.id, currentUser?.id]);
 
   return (
     <div className="pb-28">

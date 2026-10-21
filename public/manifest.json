@@ -1,7 +1,7 @@
 {
-  "name": "Lift — Personal Workout Tracker",
-  "short_name": "Lift",
-  "description": "Offline-first personal workout tracker with routines and 1RM analytics.",
+  "name": "KoyuncuFit — Social Workout Tracker",
+  "short_name": "KoyuncuFit",
+  "description": "Multi-user, biometric and social workout tracker with friend comparisons and analytics.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

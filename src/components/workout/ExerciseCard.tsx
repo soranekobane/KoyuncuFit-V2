@@ -5,6 +5,7 @@ import { db, type Exercise, type WorkoutSet } from '../../db';
 import { bestsFromWorkouts, cn, epley1RM, fmtNum, fmtRest, REST_OPTIONS, sanitizeDecimal, sanitizeInt, type ExerciseBests } from '../../lib/utils';
 import { matchPrevious, newSet, parseNum, SET_TYPE_CYCLE, setLabels, type ActiveExercise, type ActiveSet } from '../../lib/workout';
 import { toast } from '../../lib/hooks';
+import { useAuth } from '../../state/AuthContext';
 import { ActionSheet, EmptyState } from '../ui';
 import { ExercisePicker } from '../ExercisePicker';
 import { ExerciseThumbnail } from '../ExerciseMedia';
@@ -191,12 +192,15 @@ export function ExerciseCard({ ex, index, count, live, beforeTs, excludeWorkoutI
   const [menuOpen, setMenuOpen] = useState(false);
   const [restOpen, setRestOpen] = useState(false);
 
+  const { currentUser } = useAuth();
   const hist = useLiveQuery(async () => {
     const list = await db.workouts.where('exerciseIds').equals(ex.exerciseId).toArray();
-    const prior = list.filter((w) => w.startedAt < beforeTs && w.id !== excludeWorkoutId).sort((a, b) => b.startedAt - a.startedAt);
+    const prior = list
+      .filter((w) => (!currentUser || w.userId === currentUser.id) && w.startedAt < beforeTs && w.id !== excludeWorkoutId)
+      .sort((a, b) => b.startedAt - a.startedAt);
     const prevEx = prior[0]?.exercises.find((e) => e.exerciseId === ex.exerciseId);
     return { previous: prevEx?.sets ?? [], bests: bestsFromWorkouts(prior, ex.exerciseId), hasHistory: prior.length > 0 };
-  }, [ex.exerciseId, beforeTs, excludeWorkoutId]);
+  }, [ex.exerciseId, beforeTs, excludeWorkoutId, currentUser?.id]);
 
   const labels = setLabels(ex.sets);
   const prFlags = useMemo(() => computePRFlags(ex.sets, hist?.bests, !!hist?.hasHistory), [ex.sets, hist]);

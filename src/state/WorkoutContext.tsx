@@ -162,10 +162,10 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     const exercises = toWorkoutExercises(a.exercises);
     if (!exercises.length) return null;
     const endedAt = Date.now();
-    const prs = await detectPRs(exercises, a.startedAt);
+    const user = currentUserRef.current;
+    const prs = await detectPRs(exercises, a.startedAt, undefined, user?.id);
     const durationSec = Math.round((endedAt - a.startedAt) / 1000);
     const totals = totalsOf(exercises);
-    const user = currentUserRef.current;
     const caloriesBurned = calculateWorkoutCalories(
       durationSec,
       totals.totalVolume,

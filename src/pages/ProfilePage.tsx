@@ -12,11 +12,13 @@ import {
   Ellipsis,
   FileUp,
   Flame,
+  LogOut,
   Pencil,
   Plus,
   Scale,
   ShieldCheck,
   Trash,
+  Trophy,
   Users,
   Weight,
 } from 'lucide-react';
@@ -28,6 +30,11 @@ import {
   XAxis,
 } from 'recharts';
 import { db, exportBackup, importBackup, type User, type Workout } from '../db';
+import {
+  UserDirectoryModal,
+  CompareStrengthModal,
+  FriendProfileModal,
+} from '../components/SocialComparison.tsx';
 import {
   calculateBMR,
   calculateLBM,
@@ -68,7 +75,17 @@ import { BodyDistributionModal } from '../components/AnatomyMap';
 type ChartMetric = 'duration' | 'volume' | 'reps';
 
 export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout' | 'routines' | 'exercises' | 'profile') => void }) {
-  const { currentUser, users, switchUser, updateBiometrics, registerUser, deleteUser } = useAuth();
+  const {
+    currentUser,
+    users,
+    switchUser,
+    updateBiometrics,
+    registerUser,
+    deleteUser,
+    logout,
+    getFollowersCount,
+    getFollowingCount,
+  } = useAuth();
 
   // Load all workouts for the current user
   const workouts = useLiveQuery<Workout[]>(
@@ -88,6 +105,12 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
   const [backupSheetOpen, setBackupSheetOpen] = useState(false);
+
+  // Social & Friend Comparison state
+  const [socialDirectoryOpen, setSocialDirectoryOpen] = useState(false);
+  const [compareStrengthOpen, setCompareStrengthOpen] = useState(false);
+  const [selectedFriendForProfile, setSelectedFriendForProfile] = useState<User | null>(null);
+  const [selectedFriendForCompare, setSelectedFriendForCompare] = useState<User | null>(null);
 
   // Workout item options & detail sheet
   const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
@@ -252,6 +275,15 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
             >
               <ShieldCheck size={17} className="text-emerald-400" />
             </button>
+            <button
+              id="logout-button"
+              onClick={logout}
+              aria-label="Sign Out"
+              title="Sign Out"
+              className="grid h-8 w-8 place-items-center rounded-xl bg-zinc-800/90 text-zinc-400 hover:text-red-400 transition active:scale-95"
+            >
+              <LogOut size={16} />
+            </button>
           </div>
         }
       />
@@ -270,8 +302,31 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
               <div className="min-w-0">
                 <h2 className="truncate text-[20px] font-bold text-zinc-100">{currentUser?.name || 'Athlete'}</h2>
                 <div className="text-[13px] text-zinc-400">@{currentUser?.username || 'user'}</div>
-                <div className="mt-1 inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-0.5 text-[11px] font-semibold text-brand">
-                  <Flame size={12} /> {totalWorkouts} Workouts Completed
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center gap-1 rounded-full bg-brand/15 px-2.5 py-0.5 text-[11px] font-semibold text-brand">
+                    <Flame size={12} /> {totalWorkouts} Workouts
+                  </div>
+                  <div className="flex items-center gap-2 text-[12px] text-zinc-400">
+                    <button
+                      onClick={() => setSocialDirectoryOpen(true)}
+                      className="hover:text-brand transition cursor-pointer"
+                    >
+                      <strong className="text-zinc-200">
+                        {currentUser ? getFollowersCount(currentUser.id) : 0}
+                      </strong>{' '}
+                      Followers
+                    </button>
+                    <span>·</span>
+                    <button
+                      onClick={() => setSocialDirectoryOpen(true)}
+                      className="hover:text-brand transition cursor-pointer"
+                    >
+                      <strong className="text-zinc-200">
+                        {currentUser ? getFollowingCount(currentUser.id) : 0}
+                      </strong>{' '}
+                      Following
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -307,6 +362,43 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
               <div className="mt-0.5 text-[14px] font-bold text-amber-300 tabular">{bmr} kcal</div>
             </div>
           </div>
+        </section>
+
+        {/* Social & Strength Comparison Hub */}
+        <section className="grid grid-cols-2 gap-3">
+          <button
+            id="compare-strength-banner-btn"
+            onClick={() => setCompareStrengthOpen(true)}
+            className="flex flex-col justify-between rounded-2xl border border-brand/40 bg-gradient-to-br from-brand/20 via-zinc-900 to-zinc-900 p-4 text-left shadow-lg shadow-brand/10 transition active:scale-[0.98]"
+          >
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand text-white shadow-md shadow-brand/40">
+              <Trophy size={20} />
+            </div>
+            <div className="mt-4">
+              <div className="flex items-center gap-1.5 text-[15px] font-extrabold text-zinc-100">
+                <span>Gücünü Karşılaştır</span>
+              </div>
+              <div className="mt-0.5 text-[12px] text-zinc-400">
+                1RM, Max Weight & Best Set vs Friends
+              </div>
+            </div>
+          </button>
+
+          <button
+            id="social-directory-banner-btn"
+            onClick={() => setSocialDirectoryOpen(true)}
+            className="flex flex-col justify-between rounded-2xl border border-white/[0.06] bg-zinc-900/90 p-4 text-left transition active:scale-[0.98] active:bg-zinc-800"
+          >
+            <div className="grid h-10 w-10 place-items-center rounded-xl bg-purple-500/15 text-purple-400 shadow-sm">
+              <Users size={20} />
+            </div>
+            <div className="mt-4">
+              <div className="text-[15px] font-bold text-zinc-100">Social & Friends</div>
+              <div className="mt-0.5 text-[12px] text-zinc-400">
+                Athlete Directory, Follows & Friend Logs
+              </div>
+            </div>
+          </button>
         </section>
 
         {/* Weekly Activity Bar Chart (Last 12 Weeks) */}
@@ -544,6 +636,44 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
         }}
         onRegister={registerUser}
         onDelete={deleteUser}
+        onLogout={() => {
+          setAccountSwitcherOpen(false);
+          logout();
+        }}
+      />
+
+      {/* Social Athlete Directory Modal */}
+      <UserDirectoryModal
+        open={socialDirectoryOpen}
+        onClose={() => setSocialDirectoryOpen(false)}
+        onSelectCompare={(friend) => {
+          setSelectedFriendForCompare(friend);
+          setSocialDirectoryOpen(false);
+          setCompareStrengthOpen(true);
+        }}
+        onOpenFriendProfile={(friend) => {
+          setSelectedFriendForProfile(friend);
+          setSocialDirectoryOpen(false);
+        }}
+      />
+
+      {/* Compare Strength (Gücünü Karşılaştır) Modal */}
+      <CompareStrengthModal
+        open={compareStrengthOpen}
+        onClose={() => setCompareStrengthOpen(false)}
+        initialFriend={selectedFriendForCompare}
+      />
+
+      {/* Friend Profile Modal */}
+      <FriendProfileModal
+        friend={selectedFriendForProfile}
+        open={!!selectedFriendForProfile}
+        onClose={() => setSelectedFriendForProfile(null)}
+        onCompareWithFriend={(friend) => {
+          setSelectedFriendForProfile(null);
+          setSelectedFriendForCompare(friend);
+          setCompareStrengthOpen(true);
+        }}
       />
 
       {/* Workout Options Menu */}
@@ -871,6 +1001,7 @@ function AccountSwitcherSheet({
   onSwitch,
   onRegister,
   onDelete,
+  onLogout,
 }: {
   open: boolean;
   onClose: () => void;
@@ -888,6 +1019,7 @@ function AccountSwitcherSheet({
     avatarColor?: string;
   }) => Promise<User>;
   onDelete: (id: number) => Promise<void>;
+  onLogout?: () => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [username, setUsername] = useState('');
@@ -1008,6 +1140,16 @@ function AccountSwitcherSheet({
             >
               <Plus size={18} strokeWidth={2.5} /> Add Friend / New User
             </button>
+
+            {onLogout && (
+              <button
+                id="sign-out-account-switcher-btn"
+                onClick={onLogout}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 py-3 text-[14px] font-semibold text-red-400 transition active:scale-[0.98] hover:bg-red-500/15"
+              >
+                <LogOut size={16} /> Sign Out of KoyuncuFit
+              </button>
+            )}
           </>
         ) : (
           <div className="space-y-4">

@@ -92,6 +92,13 @@ export interface Workout {
   caloriesBurned?: number;
 }
 
+export interface Follow {
+  id: number;
+  followerId: number;
+  followingId: number;
+  createdAt: number;
+}
+
 // ───────────────────────── Database ─────────────────────────
 
 export const db = new Dexie('LiftWorkoutTracker') as Dexie & {
@@ -99,6 +106,7 @@ export const db = new Dexie('LiftWorkoutTracker') as Dexie & {
   exercises: EntityTable<Exercise, 'id'>;
   routines: EntityTable<Routine, 'id'>;
   workouts: EntityTable<Workout, 'id'>;
+  follows: EntityTable<Follow, 'id'>;
 };
 
 // Version 1 (legacy schema)
@@ -150,6 +158,15 @@ db.version(2)
         }
       });
   });
+
+// Version 3 (KoyuncuFit social & friend comparison)
+db.version(3).stores({
+  users: '++id, username, createdAt',
+  exercises: '++id, name, muscleGroup, equipment, isCustom',
+  routines: '++id, userId, name, order',
+  workouts: '++id, userId, startedAt, routineId, *exerciseIds',
+  follows: '++id, followerId, followingId, [followerId+followingId]',
+});
 
 // ───────────────────────── Seed Data ─────────────────────────
 
@@ -1238,93 +1255,17 @@ const seedExercises: Exercise[] = SEED_EXERCISES_SPEC.map((spec, i) => {
   };
 });
 
-const idOf = (name: string): number => {
-  const ex = seedExercises.find((e) => e.name === name);
-  if (!ex) throw new Error(`Seed exercise missing: ${name}`);
-  return ex.id;
-};
-
-let seedUid = 0;
-const re = (name: string, sets: number, reps: number, restSeconds = 90): RoutineExercise => ({
-  uid: `seed-${++seedUid}`,
-  exerciseId: idOf(name),
-  sets,
-  reps,
-  restSeconds,
-});
-
-const now = Date.now();
-const seedRoutines: Omit<Routine, 'id'>[] = [
-  {
-    userId: 1,
-    name: 'Push',
-    order: 0,
-    createdAt: now,
-    updatedAt: now,
-    exercises: [
-      re('Bench Press', 4, 8, 150),
-      re('Incline Dumbbell Press', 3, 10, 120),
-      re('Overhead Press', 3, 8, 120),
-      re('Lateral Raise', 4, 15, 60),
-      re('Triceps Pushdown', 3, 12, 60),
-    ],
-  },
-  {
-    userId: 1,
-    name: 'Pull',
-    order: 1,
-    createdAt: now,
-    updatedAt: now,
-    exercises: [
-      re('Deadlift', 3, 5, 180),
-      re('Lat Pulldown', 3, 10, 90),
-      re('Barbell Row', 3, 8, 120),
-      re('Face Pull', 3, 15, 60),
-      re('Barbell Curl', 3, 10, 60),
-    ],
-  },
-  {
-    userId: 1,
-    name: 'Legs',
-    order: 2,
-    createdAt: now,
-    updatedAt: now,
-    exercises: [
-      re('Squat', 4, 6, 180),
-      re('Romanian Deadlift', 3, 8, 150),
-      re('Leg Press', 3, 12, 120),
-      re('Lying Leg Curl', 3, 12, 60),
-      re('Standing Calf Raise', 4, 15, 60),
-    ],
-  },
-  {
-    userId: 1,
-    name: 'Upper Body',
-    order: 3,
-    createdAt: now,
-    updatedAt: now,
-    exercises: [
-      re('Bench Press', 3, 8, 150),
-      re('Seated Cable Row', 3, 10, 90),
-      re('Seated Dumbbell Press', 3, 10, 90),
-      re('Pull Up', 3, 8, 120),
-      re('Hammer Curl', 3, 12, 60),
-      re('Rope Pushdown', 3, 12, 60),
-    ],
-  },
-];
-
 db.on('populate', (tx) => {
-  tx.table('users').add({ ...DEFAULT_USER, id: 1 });
+  // Clean slate KoyuncuFit startup: only seed exercise database.
+  // No prepopulated routines and no default users!
   tx.table('exercises').bulkAdd(seedExercises);
-  tx.table('routines').bulkAdd(seedRoutines);
 });
 
 // ───────────────────────── Backup & Restore ─────────────────────────
 
 export interface BackupFile {
-  app: 'lift-workout-tracker';
-  version: 2;
+  app: 'koyuncu-fit';
+  version: 3;
   exportedAt: string;
   users?: User[];
   exercises: Exercise[];
@@ -1340,8 +1281,8 @@ export async function exportBackup(userId?: number): Promise<BackupFile> {
     userId ? db.workouts.where('userId').equals(userId).toArray() : db.workouts.toArray(),
   ]);
   return {
-    app: 'lift-workout-tracker',
-    version: 2,
+    app: 'koyuncu-fit',
+    version: 3,
     exportedAt: new Date().toISOString(),
     users,
     exercises,

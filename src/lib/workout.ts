@@ -153,11 +153,17 @@ export interface PRHit {
   previous: number;
 }
 
-export async function detectPRs(exs: WorkoutExercise[], before: number, excludeId?: number): Promise<PRHit[]> {
+export async function detectPRs(
+  exs: WorkoutExercise[],
+  before: number,
+  excludeId?: number,
+  userId?: number,
+): Promise<PRHit[]> {
   const hits: PRHit[] = [];
   for (const ex of exs) {
-    const prior = (await db.workouts.where('exerciseIds').equals(ex.exerciseId).toArray()).filter(
-      (w) => w.startedAt < before && w.id !== excludeId,
+    const list = await db.workouts.where('exerciseIds').equals(ex.exerciseId).toArray();
+    const prior = list.filter(
+      (w) => w.startedAt < before && w.id !== excludeId && (!userId || w.userId === userId),
     );
     if (!prior.length) continue;
     const bests = bestsFromWorkouts(prior, ex.exerciseId);
