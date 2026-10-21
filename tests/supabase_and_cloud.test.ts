@@ -1,5 +1,5 @@
 import 'fake-indexeddb/auto';
-import { describe, it, beforeEach } from 'node:test';
+import { describe, it, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -13,11 +13,31 @@ import {
 } from '../src/lib/cloudDb.ts';
 import { db, type Workout, type Routine } from '../src/db.ts';
 
+const TEST_USERNAMES = ['cloud_athlete', 'lifter_cloud', 'athlete_one'];
+
+async function cleanupTestData() {
+  await db.delete();
+  await db.open();
+  if (isSupabaseConfigured()) {
+    try {
+      await supabase.from('users').delete().in('username', TEST_USERNAMES);
+      await supabase.from('workouts').delete().eq('id', 'wkt_test_1');
+      await supabase.from('routines').delete().eq('id', 'rtn_test_1');
+    } catch {
+      // Ignore network errors in test environment
+    }
+  }
+}
+
 describe('Supabase Client & Cloud Sync Architecture', () => {
   beforeEach(async () => {
-    await db.delete();
-    await db.open();
+    await cleanupTestData();
   });
+
+  after(async () => {
+    await cleanupTestData();
+  });
+
 
   it('safely initializes Supabase client without crashing even without env credentials', () => {
     assert.equal(typeof isSupabaseConfigured(), 'boolean');
