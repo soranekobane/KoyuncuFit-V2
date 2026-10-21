@@ -200,6 +200,8 @@ function DetailBody({ exercise }: { exercise: Exercise }) {
           name={exercise.name}
           muscle={exercise.muscleGroup}
           equipment={exercise.equipment}
+          gifUrl={exercise.gifUrl}
+          thumbnailUrl={exercise.thumbnailUrl}
         />
       </div>
 

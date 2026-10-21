@@ -160,6 +160,8 @@ interface AnimatedDemonstrationProps {
   name: string;
   muscle: MuscleGroup | string;
   equipment?: Equipment | string;
+  gifUrl?: string;
+  thumbnailUrl?: string;
   className?: string;
 }
 
@@ -167,13 +169,18 @@ export function AnimatedDemonstration({
   name,
   muscle,
   equipment = 'Barbell',
+  gifUrl,
+  thumbnailUrl,
   className,
 }: AnimatedDemonstrationProps) {
   const [isPlaying, setIsPlaying] = useState(true);
   const [frame, setFrame] = useState(0);
+  const [imgFrame, setImgFrame] = useState(0);
+  const [imgError, setImgError] = useState(false);
 
   const type = getExerciseTypeKey(name, muscle, equipment);
 
+  // SVG vector animation loop
   useEffect(() => {
     if (!isPlaying) return;
     const interval = window.setInterval(() => {
@@ -182,31 +189,53 @@ export function AnimatedDemonstration({
     return () => window.clearInterval(interval);
   }, [isPlaying]);
 
-  // Sine-wave oscillation for smooth movement between 0 and 1
+  // Two-frame exercise demonstration cycle (from free-exercise-db)
+  useEffect(() => {
+    if (!isPlaying || !gifUrl || imgError) return;
+    const timer = window.setInterval(() => {
+      setImgFrame((f) => (f === 0 ? 1 : 0));
+    }, 700);
+    return () => window.clearInterval(timer);
+  }, [isPlaying, gifUrl, imgError]);
+
+  const frame0 = gifUrl || thumbnailUrl;
+  const frame1 = frame0 ? frame0.replace(/\/0\.jpg$/, '/1.jpg') : undefined;
+  const currentImgSrc = imgFrame === 0 ? frame0 : frame1;
+  const showImage = !imgError && !!currentImgSrc;
+
+  // Sine-wave oscillation for smooth vector movement between 0 and 1
   const progress = (Math.sin((frame / 40) * Math.PI * 2) + 1) / 2;
 
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-2xl bg-zinc-900 border border-white/[0.08] shadow-2xl',
+        'relative overflow-hidden rounded-xl bg-white text-zinc-900 border border-zinc-200/90 shadow-xl',
         className,
       )}
     >
-      {/* Top Banner with subtle background grid */}
-      <div className="relative flex h-52 w-full items-center justify-center bg-gradient-to-b from-zinc-800/90 to-zinc-950 p-4">
+      {/* Top Banner: Full-width white card */}
+      <div className="relative flex h-56 w-full items-center justify-center bg-white p-3">
         {/* Play / Pause Toggle Button */}
         <button
           onClick={() => setIsPlaying((p) => !p)}
           aria-label={isPlaying ? 'Pause animation' : 'Play animation'}
-          className="absolute top-3 right-3 z-10 grid h-9 w-9 place-items-center rounded-full bg-zinc-900/80 text-zinc-200 border border-white/10 shadow-lg backdrop-blur-md transition active:scale-90 hover:bg-zinc-800"
+          className="absolute top-3 right-3 z-20 grid h-9 w-9 place-items-center rounded-full bg-zinc-900/80 text-white border border-white/20 shadow-lg backdrop-blur-md transition active:scale-90 hover:bg-zinc-900"
         >
           {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
         </button>
 
-        {/* Dynamic Vector Movement Renderer */}
-        <svg width="220" height="180" viewBox="0 0 200 160" className="overflow-visible select-none">
-          {/* Floor / Platform */}
-          <line x1="20" y1="140" x2="180" y2="140" stroke="#3f3f46" strokeWidth="2" strokeDasharray="4 4" />
+        {showImage && currentImgSrc ? (
+          <img
+            src={currentImgSrc}
+            alt={name}
+            onError={() => setImgError(true)}
+            className="h-full w-full object-contain select-none"
+          />
+        ) : (
+          /* Dynamic Vector Movement Renderer (Fallback) */
+          <svg width="220" height="180" viewBox="0 0 200 160" className="overflow-visible select-none">
+            {/* Floor / Platform */}
+            <line x1="20" y1="140" x2="180" y2="140" stroke="#e4e4e7" strokeWidth="2" strokeDasharray="4 4" />
 
           {type === 'chest_press' && (
             <g>
@@ -391,6 +420,7 @@ export function AnimatedDemonstration({
               </g>
             )}
         </svg>
+      )}
 
         {/* Live repetition movement badge */}
         <div className="absolute bottom-2.5 left-3 flex items-center gap-1.5 rounded-full bg-zinc-900/90 px-3 py-1 text-[11px] font-semibold text-zinc-300 border border-white/10 backdrop-blur-md">

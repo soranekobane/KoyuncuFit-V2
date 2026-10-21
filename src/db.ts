@@ -1216,20 +1216,27 @@ const SEED_EXERCISES_SPEC: SeedExerciseSpec[] = [
   },
 ];
 
-const seedExercises: Exercise[] = SEED_EXERCISES_SPEC.map((spec, i) => ({
-  id: i + 1,
-  name: spec.name,
-  muscleGroup: spec.muscle,
-  equipment: spec.equipment,
-  isCustom: false,
-  createdAt: 0,
-  primaryMuscles: spec.primary,
-  secondaryMuscles: spec.secondary,
-  metValue: spec.met,
-  instructions: spec.instructions,
-  thumbnailUrl: undefined,
-  gifUrl: undefined,
-}));
+const seedExercises: Exercise[] = SEED_EXERCISES_SPEC.map((spec, i) => {
+  const cleanName = `${spec.equipment === 'Bodyweight' ? '' : spec.equipment}_${spec.name}`
+    .replace(/^_+|_+$/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/[^a-zA-Z0-9_]/g, '');
+  const cdn = `https://raw.githubusercontent.com/yuhonas/free-exercise-db/main/exercises/${cleanName}/0.jpg`;
+  return {
+    id: i + 1,
+    name: spec.name,
+    muscleGroup: spec.muscle,
+    equipment: spec.equipment,
+    isCustom: false,
+    createdAt: 0,
+    primaryMuscles: spec.primary,
+    secondaryMuscles: spec.secondary,
+    metValue: spec.met,
+    instructions: spec.instructions,
+    thumbnailUrl: cdn,
+    gifUrl: cdn,
+  };
+});
 
 const idOf = (name: string): number => {
   const ex = seedExercises.find((e) => e.name === name);
