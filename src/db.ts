@@ -13,7 +13,12 @@ export interface User {
   id: number;
   username: string;
   name: string;
+  /** @deprecated Legacy plaintext PIN. Migrated to pinHash on first launch/login; never written by new code. */
   pin?: string;
+  /** PBKDF2-SHA256 hash of the PIN (base64). */
+  pinHash?: string;
+  /** Random per-user salt for pinHash (base64). */
+  pinSalt?: string;
   gender: 'male' | 'female';
   age: number;
   weightKg: number;
@@ -21,6 +26,48 @@ export interface User {
   bodyFatPercentage?: number;
   avatarColor: string;
   createdAt: number;
+  /** Workout history visible to other athletes (compare + friend profile). Default: true. */
+  shareWorkouts?: boolean;
+  /** Routines visible to other athletes. Must be explicitly enabled. Default: false. */
+  shareRoutines?: boolean;
+}
+
+/** The signed-in user's own record, with credential material removed. */
+export type SafeUser = Omit<User, 'pin' | 'pinHash' | 'pinSalt'> & { hasPin: boolean };
+
+/** What other athletes may see in the directory. No credentials, no body measurements. */
+export interface PublicUser {
+  id: number;
+  username: string;
+  name: string;
+  avatarColor: string;
+  createdAt: number;
+  hasPin: boolean;
+  shareWorkouts: boolean;
+  shareRoutines: boolean;
+}
+
+export function userHasPin(u: Pick<User, 'pin' | 'pinHash'>): boolean {
+  return !!(u.pinHash || (u.pin && u.pin.trim() !== ''));
+}
+
+export function toSafeUser(u: User): SafeUser {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { pin: _pin, pinHash: _hash, pinSalt: _salt, ...rest } = u;
+  return { ...rest, hasPin: userHasPin(u) };
+}
+
+export function toPublicUser(u: User): PublicUser {
+  return {
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    avatarColor: u.avatarColor,
+    createdAt: u.createdAt,
+    hasPin: userHasPin(u),
+    shareWorkouts: u.shareWorkouts !== false,
+    shareRoutines: u.shareRoutines === true,
+  };
 }
 
 export interface Exercise {
@@ -1265,62 +1312,94 @@ db.on('populate', (tx) => {
 
 export interface BackupFile {
   app: 'koyuncu-fit';
-  version: 3;
+  version: 3 | 4;
   exportedAt: string;
-  users?: User[];
+  /** v4: only the exporting account's profile (no credentials). Older files may contain all users. */
+  users?: Array<Partial<User>>;
   exercises: Exercise[];
   routines: Routine[];
   workouts: Workout[];
 }
 
-export async function exportBackup(userId?: number): Promise<BackupFile> {
-  const [users, exercises, routines, workouts] = await Promise.all([
-    db.users.toArray(),
+/** Export ONE account's data. Never includes other accounts or PIN material. */
+export async function exportBackup(userId: number): Promise<BackupFile> {
+  const [user, exercises, routines, workouts] = await Promise.all([
+    db.users.get(userId),
     db.exercises.toArray(),
-    userId ? db.routines.where('userId').equals(userId).toArray() : db.routines.toArray(),
-    userId ? db.workouts.where('userId').equals(userId).toArray() : db.workouts.toArray(),
+    db.routines.where('userId').equals(userId).toArray(),
+    db.workouts.where('userId').equals(userId).toArray(),
   ]);
+  if (!user) throw new Error('Account not found.');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { pin: _p, pinHash: _h, pinSalt: _s, ...profile } = user;
   return {
     app: 'koyuncu-fit',
-    version: 3,
+    version: 4,
     exportedAt: new Date().toISOString(),
-    users,
+    users: [profile],
     exercises,
     routines,
     workouts,
   };
 }
 
-export async function importBackup(data: unknown): Promise<{ workouts: number; routines: number; exercises: number; users: number }> {
+/**
+ * Non-destructive import into the signed-in account.
+ * - Never clears or overwrites other accounts, routines or workouts.
+ * - Adds exercises that don't exist yet; existing library entries are kept.
+ * - Routines/workouts are re-keyed to `userId`; workouts already present (same startedAt) are skipped.
+ */
+export async function importBackup(
+  data: unknown,
+  userId: number,
+): Promise<{ workouts: number; routines: number; exercises: number; skipped: number }> {
   const d = data as Partial<BackupFile>;
   if (!d || typeof d !== 'object' || !Array.isArray(d.exercises) || !Array.isArray(d.workouts) || !Array.isArray(d.routines)) {
     throw new Error('Invalid backup file.');
   }
-  await db.transaction('rw', db.users, db.exercises, db.routines, db.workouts, async () => {
-    if (Array.isArray(d.users) && d.users.length > 0) {
-      await db.users.clear();
-      await db.users.bulkPut(d.users as User[]);
-    } else {
-      const userCount = await db.users.count();
-      if (userCount === 0) {
-        await db.users.add({ ...DEFAULT_USER, id: 1 });
+  if (!(await db.users.get(userId))) throw new Error('Sign in before importing a backup.');
+
+  let addedEx = 0;
+  let addedRoutines = 0;
+  let addedWorkouts = 0;
+  let skipped = 0;
+
+  await db.transaction('rw', db.exercises, db.routines, db.workouts, async () => {
+    for (const ex of d.exercises as Exercise[]) {
+      if (ex && typeof ex.id === 'number' && !(await db.exercises.get(ex.id))) {
+        await db.exercises.put(ex);
+        addedEx++;
       }
     }
-    await Promise.all([db.exercises.clear(), db.routines.clear(), db.workouts.clear()]);
-    await db.exercises.bulkPut(d.exercises as Exercise[]);
-    await db.routines.bulkPut((d.routines as Routine[]).map((r) => ({ ...r, userId: r.userId || 1 })));
-    await db.workouts.bulkPut(
-      (d.workouts as Workout[]).map((w) => ({
-        ...w,
-        userId: w.userId || 1,
-        exerciseIds: w.exerciseIds ?? Array.from(new Set(w.exercises.map((e) => e.exerciseId))),
-      })),
+
+    const existingStarts = new Set(
+      (await db.workouts.where('userId').equals(userId).toArray()).map((w) => w.startedAt),
     );
+    for (const w of d.workouts as Workout[]) {
+      if (!w || !Array.isArray(w.exercises) || existingStarts.has(w.startedAt)) {
+        skipped++;
+        continue;
+      }
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id: _id, ...rest } = w;
+      await db.workouts.add({
+        ...rest,
+        userId,
+        exerciseIds: w.exerciseIds ?? Array.from(new Set(w.exercises.map((e) => e.exerciseId))),
+      } as Workout);
+      existingStarts.add(w.startedAt);
+      addedWorkouts++;
+    }
+
+    let order = await db.routines.where('userId').equals(userId).count();
+    for (const r of d.routines as Routine[]) {
+      if (!r || !Array.isArray(r.exercises)) continue;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { id: _id, ...rest } = r;
+      await db.routines.add({ ...rest, userId, order: order++ } as Routine);
+      addedRoutines++;
+    }
   });
-  return {
-    workouts: d.workouts.length,
-    routines: d.routines.length,
-    exercises: d.exercises.length,
-    users: d.users?.length ?? 1,
-  };
+
+  return { workouts: addedWorkouts, routines: addedRoutines, exercises: addedEx, skipped };
 }

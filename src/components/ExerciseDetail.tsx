@@ -63,6 +63,7 @@ export function ExerciseDetailSheet({
   exerciseId: number | null;
   onClose: () => void;
 }) {
+  const { currentUser } = useAuth();
   const exercise = useLiveQuery(
     () => (exerciseId ? db.exercises.get(exerciseId) : undefined),
     [exerciseId],
@@ -80,7 +81,9 @@ export function ExerciseDetailSheet({
       onConfirm: async () => {
         await db.transaction('rw', db.exercises, db.routines, async () => {
           await db.exercises.delete(ex.id);
-          const routines = await db.routines.toArray();
+          const routines = currentUser
+            ? await db.routines.where('userId').equals(currentUser.id).toArray()
+            : [];
           for (const r of routines) {
             if (r.exercises.some((e) => e.exerciseId === ex.id)) {
               await db.routines.update(r.id, {

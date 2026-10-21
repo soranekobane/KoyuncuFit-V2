@@ -1,5 +1,5 @@
 /* Offline-first service worker: network-first for pages, stale-while-revalidate for assets. */
-const CACHE = 'koyuncufit-v2';
+const CACHE = 'koyuncufit-v3';
 const SHELL = [
   '/',
   '/index.html',
@@ -52,7 +52,7 @@ self.addEventListener('fetch', (event) => {
   // Stale-while-revalidate for static assets & fonts.
   event.respondWith(
     caches.open(CACHE).then(async (cache) => {
-      const cached = await cache.match(req);
+      const cached = await cache.match(req, { ignoreSearch: true });
       const network = fetch(req)
         .then((res) => {
           if (res && (res.ok || res.type === 'opaque')) cache.put(req, res.clone());

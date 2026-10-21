@@ -84,9 +84,13 @@ export function RoutinesPage({
   };
 
   const handleDuplicate = async (routine: Routine) => {
-    const nextOrder = (routines?.length ?? 0);
+    if (!currentUser) {
+      toast('Please log in to duplicate a routine', 'error');
+      return;
+    }
+    const nextOrder = routines?.length ?? 0;
     const newRoutine: Omit<Routine, 'id'> = {
-      userId: currentUser?.id ?? 1,
+      userId: currentUser.id,
       name: `${routine.name} (Copy)`,
       order: nextOrder,
       createdAt: Date.now(),
@@ -394,9 +398,13 @@ function RoutineBuilderBody({
       });
       toast('Routine updated', 'success');
     } else {
-      const count = await db.routines.count();
+      if (!currentUser) {
+        toast('Please log in to save a routine', 'error');
+        return;
+      }
+      const count = await db.routines.where('userId').equals(currentUser.id).count();
       await db.routines.add({
-        userId: currentUser?.id ?? 1,
+        userId: currentUser.id,
         name: trimmedName,
         exercises,
         order: count,

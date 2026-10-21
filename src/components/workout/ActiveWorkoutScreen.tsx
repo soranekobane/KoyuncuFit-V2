@@ -244,9 +244,12 @@ export function WorkoutCompleteSheet({ result, onClose }: { result: FinishResult
 }
 
 function CompleteBody({ result, onClose }: { result: FinishResult; onClose: () => void }) {
-  const count = useLiveQuery(() => db.workouts.count(), []);
-  const allExercises = useLiveQuery(() => db.exercises.toArray(), []);
   const { workout, prs } = result;
+  const count = useLiveQuery(
+    () => db.workouts.where('userId').equals(workout.userId).count(),
+    [workout.userId],
+  );
+  const allExercises = useLiveQuery(() => db.exercises.toArray(), []);
 
   // Build muscle heatmap from completed workout exercises
   const heatmapData: MuscleHeatmapData = {};

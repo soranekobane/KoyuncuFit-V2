@@ -23,8 +23,8 @@ import {
   type PRHit,
 } from '../lib/workout';
 
-const ACTIVE_KEY = 'lift.activeWorkout.v1';
-const REST_KEY = 'lift.restTimer.v1';
+const getActiveKey = (userId?: number) => `koyuncu.activeWorkout.${userId ?? 'anon'}.v1`;
+const getRestKey = (userId?: number) => `koyuncu.restTimer.${userId ?? 'anon'}.v1`;
 
 export interface RestState {
   endsAt: number;
@@ -74,16 +74,29 @@ function save(key: string, value: unknown) {
 
 export function WorkoutProvider({ children }: { children: ReactNode }) {
   const { currentUser } = useAuth();
-  const [active, setActive] = useState<ActiveWorkout | null>(() => load<ActiveWorkout>(ACTIVE_KEY));
-  const [isOpen, setIsOpen] = useState<boolean>(() => !!load<ActiveWorkout>(ACTIVE_KEY));
+  const userId = currentUser?.id;
+  const activeKey = getActiveKey(userId);
+  const restKey = getRestKey(userId);
+
+  const [active, setActive] = useState<ActiveWorkout | null>(() => load<ActiveWorkout>(activeKey));
+  const [isOpen, setIsOpen] = useState<boolean>(() => !!load<ActiveWorkout>(activeKey));
   const [rest, setRest] = useState<RestState | null>(() => {
-    const r = load<RestState>(REST_KEY);
+    const r = load<RestState>(restKey);
     return r && r.endsAt > Date.now() ? r : null;
   });
 
-  // Crash / refresh protection: persist on every change (i.e. every keystroke).
-  useEffect(() => save(ACTIVE_KEY, active), [active]);
-  useEffect(() => save(REST_KEY, rest), [rest]);
+  // Reload state when active user changes so workouts never leak across accounts
+  useEffect(() => {
+    const savedActive = load<ActiveWorkout>(activeKey);
+    setActive(savedActive);
+    setIsOpen(!!savedActive);
+    const savedRest = load<RestState>(restKey);
+    setRest(savedRest && savedRest.endsAt > Date.now() ? savedRest : null);
+  }, [activeKey, restKey]);
+
+  // Persist on change scoped to current user
+  useEffect(() => save(activeKey, active), [activeKey, active]);
+  useEffect(() => save(restKey, rest), [restKey, rest]);
 
   // Rest timer completion watcher.
   const restRef = useRef(rest);
@@ -163,18 +176,19 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
     if (!exercises.length) return null;
     const endedAt = Date.now();
     const user = currentUserRef.current;
-    const prs = await detectPRs(exercises, a.startedAt, undefined, user?.id);
+    if (!user) throw new Error('Please sign in to log a workout.');
+    const prs = await detectPRs(exercises, a.startedAt, undefined, user.id);
     const durationSec = Math.round((endedAt - a.startedAt) / 1000);
     const totals = totalsOf(exercises);
     const caloriesBurned = calculateWorkoutCalories(
       durationSec,
       totals.totalVolume,
       4.8,
-      user ?? undefined,
+      user,
     );
 
     const data: Omit<Workout, 'id'> = {
-      userId: user?.id ?? 1,
+      userId: user.id,
       name: a.name.trim() || 'Workout',
       routineId: a.routineId,
       startedAt: a.startedAt,
@@ -188,7 +202,7 @@ export function WorkoutProvider({ children }: { children: ReactNode }) {
       caloriesBurned,
     };
     const id = await db.workouts.add(data as Workout);
-    save(ACTIVE_KEY, null);
+    save(getActiveKey(user.id), null);
     setActive(null);
     setIsOpen(false);
     setRest(null);

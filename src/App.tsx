@@ -22,6 +22,8 @@ import {
   type FinishResult,
 } from './state/WorkoutContext';
 import { PrimaryButton, Toaster } from './components/ui';
+import { type PublicUser } from './db';
+import { type RegisterInput } from './lib/auth';
 import {
   ActiveWorkoutScreen,
   WorkoutCompleteSheet,
@@ -55,9 +57,14 @@ function WorkoutApp() {
 
     // Register service worker in production or standalone
     if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
-      void navigator.serviceWorker.register('/sw.js').catch(() => {
-        /* ignore dev mode service worker errors */
-      });
+      void navigator.serviceWorker
+        .register('/sw.js')
+        .then((reg) => {
+          reg.update().catch(() => {});
+        })
+        .catch(() => {
+          /* ignore dev mode service worker errors */
+        });
     }
   }, []);
 
@@ -270,20 +277,10 @@ function AuthScreen({
   onLogin,
   onRegister,
 }: {
-  users: Array<{ id: number; name: string; username: string; avatarColor?: string; pin?: string }>;
-  onSwitch: (id: number) => void;
+  users: PublicUser[];
+  onSwitch: (id: number, pin?: string) => Promise<void>;
   onLogin: (username: string, pin?: string) => Promise<unknown>;
-  onRegister: (data: {
-    username: string;
-    name: string;
-    gender: 'male' | 'female';
-    age: number;
-    weightKg: number;
-    heightCm: number;
-    bodyFatPercentage?: number;
-    avatarColor?: string;
-    pin?: string;
-  }) => Promise<unknown>;
+  onRegister: (data: RegisterInput) => Promise<unknown>;
 }) {
   const [tab, setTab] = useState<'login' | 'register'>(users.length > 0 ? 'login' : 'register');
 
@@ -329,28 +326,35 @@ function AuthScreen({
     }
   };
 
-  const handleSelectAccount = (u: (typeof users)[0]) => {
-    if (u.pin && u.pin.trim() !== '') {
+  const handleSelectAccount = (u: PublicUser) => {
+    if (u.hasPin) {
       setPinPromptUser(u);
       setUserPinInput('');
       setUserPinError('');
     } else {
-      onSwitch(u.id);
+      void onSwitch(u.id).catch((err: unknown) => {
+        setLoginError(err instanceof Error ? err.message : 'Switch failed');
+      });
     }
   };
 
-  const handleVerifyAccountPin = () => {
+  const handleVerifyAccountPin = async () => {
     if (!pinPromptUser) return;
-    if (pinPromptUser.pin && pinPromptUser.pin.trim() !== userPinInput.trim()) {
-      setUserPinError('Incorrect PIN. Please try again.');
-      return;
+    try {
+      await onSwitch(pinPromptUser.id, userPinInput);
+      setPinPromptUser(null);
+    } catch (err: unknown) {
+      setUserPinError(err instanceof Error ? err.message : 'Incorrect PIN.');
     }
-    onSwitch(pinPromptUser.id);
   };
 
   const handleRegister = async () => {
     if (!username.trim()) {
       setRegError('Please provide a username.');
+      return;
+    }
+    if (!pin.trim() || pin.trim().length < 4) {
+      setRegError('Please choose a Password / PIN (at least 4 characters).');
       return;
     }
     setRegError('');
@@ -366,7 +370,7 @@ function AuthScreen({
         heightCm,
         bodyFatPercentage: bfNum && !isNaN(bfNum) ? bfNum : undefined,
         avatarColor,
-        pin: pin.trim() || undefined,
+        pin: pin.trim(),
       });
     } catch (err: unknown) {
       setRegError(err instanceof Error ? err.message : 'Registration failed');
@@ -443,7 +447,7 @@ function AuthScreen({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    {u.pin && <Lock size={14} className="text-zinc-500" />}
+                    {u.hasPin && <Lock size={14} className="text-zinc-500" />}
                     <div className="grid h-8 w-8 place-items-center rounded-full bg-brand/15 text-brand">
                       <Check size={18} strokeWidth={2.5} />
                     </div>
@@ -531,13 +535,13 @@ function AuthScreen({
             </div>
             <div>
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                Password / PIN
+                Password / PIN (Required)
               </label>
               <input
                 type="password"
                 value={pin}
                 onChange={(e) => setPin(e.target.value)}
-                placeholder="Optional PIN"
+                placeholder="Min. 4 characters"
                 className="h-11 w-full rounded-xl bg-zinc-800 px-3.5 text-[15px] font-semibold text-zinc-100 outline-none ring-brand/60 focus:ring-2"
               />
             </div>

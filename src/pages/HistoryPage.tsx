@@ -28,6 +28,7 @@ import {
   type ActiveExercise,
 } from '../lib/workout';
 import { toast } from '../lib/hooks';
+import { useAuth } from '../state/AuthContext';
 import {
   ActionSheet,
   Alert,
@@ -43,9 +44,13 @@ import { WorkoutExercisesEditor } from '../components/workout/ExerciseCard';
 import { ExerciseDetailSheet } from '../components/ExerciseDetail';
 
 export function HistoryPage() {
+  const { currentUser } = useAuth();
   const workouts = useLiveQuery(
-    () => db.workouts.orderBy('startedAt').reverse().toArray(),
-    [],
+    () => {
+      if (!currentUser) return [];
+      return db.workouts.where('userId').equals(currentUser.id).reverse().sortBy('startedAt');
+    },
+    [currentUser?.id],
   );
 
   const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
@@ -422,6 +427,7 @@ function BackupSheet({
   open: boolean;
   onClose: () => void;
 }) {
+  const { currentUser } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [isPersisted, setIsPersisted] = useState<boolean | null>(null);
@@ -435,9 +441,13 @@ function BackupSheet({
 
   const handleExport = async () => {
     try {
-      const data = await exportBackup();
+      if (!currentUser) {
+        toast('Sign in required for backup export', 'error');
+        return;
+      }
+      const data = await exportBackup(currentUser.id);
       const dateStr = new Date().toISOString().slice(0, 10);
-      downloadJSON(data, `lift-backup-${dateStr}.json`);
+      downloadJSON(data, `koyuncufit-backup-${dateStr}.json`);
       toast('Backup exported successfully', 'success');
     } catch {
       toast('Export failed', 'error');
@@ -449,9 +459,13 @@ function BackupSheet({
     if (!file) return;
     setImporting(true);
     try {
+      if (!currentUser) {
+        toast('Sign in required for backup import', 'error');
+        return;
+      }
       const text = await file.text();
       const json = JSON.parse(text);
-      const res = await importBackup(json);
+      const res = await importBackup(json, currentUser.id);
       toast(
         `Imported ${res.workouts} workouts, ${res.routines} routines`,
         'success',

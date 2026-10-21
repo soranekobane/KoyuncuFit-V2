@@ -12,6 +12,7 @@ import {
   Ellipsis,
   FileUp,
   Flame,
+  Lock,
   LogOut,
   Pencil,
   Plus,
@@ -29,12 +30,13 @@ import {
   Tooltip,
   XAxis,
 } from 'recharts';
-import { db, exportBackup, importBackup, type User, type Workout } from '../db';
+import { db, exportBackup, importBackup, type PublicUser, type SafeUser, type Workout } from '../db';
+import { type ProfilePatch, type RegisterInput } from '../lib/auth';
 import {
   UserDirectoryModal,
   CompareStrengthModal,
   FriendProfileModal,
-} from '../components/SocialComparison.tsx';
+} from '../components/SocialComparison';
 import {
   calculateBMR,
   calculateLBM,
@@ -109,8 +111,8 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
   // Social & Friend Comparison state
   const [socialDirectoryOpen, setSocialDirectoryOpen] = useState(false);
   const [compareStrengthOpen, setCompareStrengthOpen] = useState(false);
-  const [selectedFriendForProfile, setSelectedFriendForProfile] = useState<User | null>(null);
-  const [selectedFriendForCompare, setSelectedFriendForCompare] = useState<User | null>(null);
+  const [selectedFriendForProfile, setSelectedFriendForProfile] = useState<PublicUser | null>(null);
+  const [selectedFriendForCompare, setSelectedFriendForCompare] = useState<PublicUser | null>(null);
 
   // Workout item options & detail sheet
   const [selectedWorkout, setSelectedWorkout] = useState<Workout | null>(null);
@@ -630,8 +632,8 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
         onClose={() => setAccountSwitcherOpen(false)}
         users={users}
         currentUser={currentUser}
-        onSwitch={(id) => {
-          switchUser(id);
+        onSwitch={async (id, pin) => {
+          await switchUser(id, pin);
           setAccountSwitcherOpen(false);
         }}
         onRegister={registerUser}
@@ -708,7 +710,11 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
       )}
 
       {/* Backup & Restore Sheet */}
-      <BackupSheet open={backupSheetOpen} onClose={() => setBackupSheetOpen(false)} />
+      <BackupSheet
+        open={backupSheetOpen}
+        onClose={() => setBackupSheetOpen(false)}
+        currentUser={currentUser}
+      />
 
       {/* Exercise Detail Sheet */}
       <ExerciseDetailSheet
@@ -828,8 +834,8 @@ function BiometricsEditorSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  currentUser: User | null;
-  onSave: (patch: Partial<Omit<User, 'id' | 'createdAt'>>) => Promise<void>;
+  currentUser: SafeUser | null;
+  onSave: (patch: ProfilePatch) => Promise<void>;
   bmr: number;
   lbm: number;
   avgWorkoutCalories: number;
@@ -840,6 +846,9 @@ function BiometricsEditorSheet({
   const [gender, setGender] = useState<'male' | 'female'>(currentUser?.gender ?? 'male');
   const [bodyFat, setBodyFat] = useState<string>(currentUser?.bodyFatPercentage ? String(currentUser.bodyFatPercentage) : '');
 
+  const [shareWorkouts, setShareWorkouts] = useState(currentUser?.shareWorkouts !== false);
+  const [shareRoutines, setShareRoutines] = useState(currentUser?.shareRoutines === true);
+
   useEffect(() => {
     if (currentUser) {
       setWeight(currentUser.weightKg);
@@ -847,6 +856,8 @@ function BiometricsEditorSheet({
       setAge(currentUser.age);
       setGender(currentUser.gender);
       setBodyFat(currentUser.bodyFatPercentage ? String(currentUser.bodyFatPercentage) : '');
+      setShareWorkouts(currentUser.shareWorkouts !== false);
+      setShareRoutines(currentUser.shareRoutines === true);
     }
   }, [currentUser, open]);
 
@@ -858,6 +869,8 @@ function BiometricsEditorSheet({
       age: Math.max(12, Math.min(100, age)),
       gender,
       bodyFatPercentage: bfNum && !isNaN(bfNum) ? bfNum : undefined,
+      shareWorkouts,
+      shareRoutines,
     });
     onClose();
   };
@@ -981,6 +994,31 @@ function BiometricsEditorSheet({
               </button>
             </div>
           </div>
+
+          {/* Social Privacy Toggles */}
+          <div className="rounded-2xl border border-white/[0.06] bg-zinc-950/60 p-4 space-y-3">
+            <div className="text-[12px] font-semibold uppercase tracking-wider text-zinc-400">
+              Social & Privacy Settings
+            </div>
+            <label className="flex items-center justify-between cursor-pointer">
+              <span className="text-[14px] text-zinc-200">Share Workouts with Friends</span>
+              <input
+                type="checkbox"
+                checked={shareWorkouts}
+                onChange={(e) => setShareWorkouts(e.target.checked)}
+                className="h-5 w-5 rounded bg-zinc-800 accent-brand"
+              />
+            </label>
+            <label className="flex items-center justify-between cursor-pointer">
+              <span className="text-[14px] text-zinc-200">Share Custom Routines with Friends</span>
+              <input
+                type="checkbox"
+                checked={shareRoutines}
+                onChange={(e) => setShareRoutines(e.target.checked)}
+                className="h-5 w-5 rounded bg-zinc-800 accent-brand"
+              />
+            </label>
+          </div>
         </div>
 
         <div className="sticky bottom-0 mt-auto bg-gradient-to-t from-zinc-900 via-zinc-900 to-transparent pt-6 pb-[max(12px,env(safe-area-inset-bottom))]">
@@ -1005,25 +1043,17 @@ function AccountSwitcherSheet({
 }: {
   open: boolean;
   onClose: () => void;
-  users: User[];
-  currentUser: User | null;
-  onSwitch: (id: number) => void;
-  onRegister: (data: {
-    username: string;
-    name: string;
-    gender: 'male' | 'female';
-    age: number;
-    weightKg: number;
-    heightCm: number;
-    bodyFatPercentage?: number;
-    avatarColor?: string;
-  }) => Promise<User>;
-  onDelete: (id: number) => Promise<void>;
+  users: PublicUser[];
+  currentUser: SafeUser | null;
+  onSwitch: (id: number, pin?: string) => Promise<void>;
+  onRegister: (data: RegisterInput) => Promise<SafeUser>;
+  onDelete: (id: number, pin?: string) => Promise<void>;
   onLogout?: () => void;
 }) {
   const [creating, setCreating] = useState(false);
   const [username, setUsername] = useState('');
   const [name, setName] = useState('');
+  const [pin, setPin] = useState('');
   const [weightKg, setWeightKg] = useState(75);
   const [heightCm, setHeightCm] = useState(178);
   const [age, setAge] = useState(25);
@@ -1032,11 +1062,58 @@ function AccountSwitcherSheet({
   const [avatarColor, setAvatarColor] = useState('#3b82f6');
   const [loading, setLoading] = useState(false);
 
+  // Switch Account PIN prompt
+  const [pinPromptUser, setPinPromptUser] = useState<PublicUser | null>(null);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
+
+  // Delete own account prompt
+  const [deleteSelfModal, setDeleteSelfModal] = useState(false);
+  const [deletePinInput, setDeletePinInput] = useState('');
+  const [deleteError, setDeleteError] = useState('');
+
   const colors = ['#3b82f6', '#10b981', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#ef4444'];
+
+  const handleSelectAccount = (u: PublicUser) => {
+    if (u.id === currentUser?.id) return;
+    if (u.hasPin) {
+      setPinPromptUser(u);
+      setPinInput('');
+      setPinError('');
+    } else {
+      void onSwitch(u.id).catch((err: unknown) => {
+        toast(err instanceof Error ? err.message : 'Switch failed', 'error');
+      });
+    }
+  };
+
+  const handleVerifyPinAndSwitch = async () => {
+    if (!pinPromptUser) return;
+    try {
+      await onSwitch(pinPromptUser.id, pinInput);
+      setPinPromptUser(null);
+    } catch (err: unknown) {
+      setPinError(err instanceof Error ? err.message : 'Incorrect Password / PIN');
+    }
+  };
+
+  const handleDeleteSelf = async () => {
+    if (!currentUser) return;
+    try {
+      await onDelete(currentUser.id, deletePinInput);
+      setDeleteSelfModal(false);
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : 'Deletion failed');
+    }
+  };
 
   const handleCreate = async () => {
     if (!username.trim()) {
       toast('Please enter a username', 'error');
+      return;
+    }
+    if (!pin.trim() || pin.trim().length < 4) {
+      toast('Password / PIN must be at least 4 characters', 'error');
       return;
     }
     setLoading(true);
@@ -1051,10 +1128,12 @@ function AccountSwitcherSheet({
         heightCm,
         bodyFatPercentage: bfNum && !isNaN(bfNum) ? bfNum : undefined,
         avatarColor,
+        pin: pin.trim(),
       });
       setCreating(false);
       setUsername('');
       setName('');
+      setPin('');
       onClose();
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Failed to create user', 'error');
@@ -1080,7 +1159,7 @@ function AccountSwitcherSheet({
                 return (
                   <div
                     key={u.id}
-                    onClick={() => onSwitch(u.id)}
+                    onClick={() => handleSelectAccount(u)}
                     className={cn(
                       'flex items-center justify-between p-3.5 transition cursor-pointer active:bg-white/5',
                       isActive && 'bg-brand/10',
@@ -1103,29 +1182,21 @@ function AccountSwitcherSheet({
                           )}
                         </div>
                         <div className="text-[12px] text-zinc-400">
-                          @{u.username} · {u.weightKg}kg · {u.gender}
+                          @{u.username}
                         </div>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2">
+                      {u.hasPin && <Lock size={14} className="text-zinc-500" />}
                       {isActive ? (
                         <div className="grid h-7 w-7 place-items-center rounded-full bg-brand text-white shadow-sm">
                           <Check size={16} strokeWidth={3} />
                         </div>
                       ) : (
-                        users.length > 1 && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void onDelete(u.id);
-                            }}
-                            className="grid h-8 w-8 place-items-center rounded-lg text-zinc-500 hover:text-red-400 active:bg-red-500/10"
-                            aria-label="Delete User"
-                          >
-                            <Trash size={15} />
-                          </button>
-                        )
+                        <div className="text-[12px] font-semibold text-brand">
+                          Switch
+                        </div>
                       )}
                     </div>
                   </div>
@@ -1141,14 +1212,102 @@ function AccountSwitcherSheet({
               <Plus size={18} strokeWidth={2.5} /> Add Friend / New User
             </button>
 
+            {currentUser && (
+              <button
+                onClick={() => {
+                  setDeleteSelfModal(true);
+                  setDeletePinInput('');
+                  setDeleteError('');
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 py-3 text-[14px] font-semibold text-red-400 transition active:scale-[0.98] hover:bg-red-500/15"
+              >
+                <Trash size={15} /> Delete My Account ({currentUser.name})
+              </button>
+            )}
+
             {onLogout && (
               <button
                 id="sign-out-account-switcher-btn"
                 onClick={onLogout}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 py-3 text-[14px] font-semibold text-red-400 transition active:scale-[0.98] hover:bg-red-500/15"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-zinc-900 py-3 text-[14px] font-semibold text-zinc-300 transition active:scale-[0.98] hover:bg-zinc-800"
               >
                 <LogOut size={16} /> Sign Out of KoyuncuFit
               </button>
+            )}
+
+            {/* PIN Prompt Modal for Switching */}
+            {pinPromptUser && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+                <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-zinc-900 p-5 space-y-4 shadow-2xl">
+                  <h3 className="text-[17px] font-bold text-zinc-100">
+                    Enter Password / PIN for @{pinPromptUser.username}
+                  </h3>
+                  {pinError && (
+                    <div className="text-[13px] text-red-400 font-semibold">{pinError}</div>
+                  )}
+                  <input
+                    type="password"
+                    autoFocus
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value)}
+                    placeholder="PIN"
+                    className="h-11 w-full rounded-xl bg-zinc-800 px-3.5 text-center text-[18px] font-bold tracking-widest text-zinc-100 outline-none ring-brand focus:ring-2"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setPinPromptUser(null)}
+                      className="flex-1 rounded-xl bg-zinc-800 py-2.5 text-[14px] font-semibold text-zinc-300"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleVerifyPinAndSwitch}
+                      className="flex-1 rounded-xl bg-brand py-2.5 text-[14px] font-semibold text-white"
+                    >
+                      Unlock
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* PIN Prompt Modal for Deleting Self */}
+            {deleteSelfModal && currentUser && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+                <div className="w-full max-w-sm rounded-3xl border border-red-500/20 bg-zinc-900 p-5 space-y-4 shadow-2xl">
+                  <h3 className="text-[17px] font-bold text-red-400">
+                    Delete Account @{currentUser.username}?
+                  </h3>
+                  <p className="text-[13px] text-zinc-400">
+                    All your private workouts and routines will be deleted. Enter your Password / PIN to confirm:
+                  </p>
+                  {deleteError && (
+                    <div className="text-[13px] text-red-400 font-semibold">{deleteError}</div>
+                  )}
+                  <input
+                    type="password"
+                    autoFocus
+                    value={deletePinInput}
+                    onChange={(e) => setDeletePinInput(e.target.value)}
+                    placeholder="Confirm PIN"
+                    className="h-11 w-full rounded-xl bg-zinc-800 px-3.5 text-center text-[18px] font-bold tracking-widest text-zinc-100 outline-none ring-red-500 focus:ring-2"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setDeleteSelfModal(false)}
+                      className="flex-1 rounded-xl bg-zinc-800 py-2.5 text-[14px] font-semibold text-zinc-300"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDeleteSelf}
+                      className="flex-1 rounded-xl bg-red-600 py-2.5 text-[14px] font-semibold text-white"
+                    >
+                      Delete Forever
+                    </button>
+                  </div>
+                </div>
+              </div>
             )}
           </>
         ) : (
@@ -1173,6 +1332,19 @@ function AccountSwitcherSheet({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Alex"
+                className="h-12 w-full rounded-xl bg-zinc-800 px-4 text-[16px] font-semibold text-zinc-100 outline-none ring-brand/60 focus:ring-2"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-[12px] font-semibold uppercase tracking-wider text-zinc-500">
+                Password / PIN (Required, min 4 chars)
+              </label>
+              <input
+                type="password"
+                value={pin}
+                onChange={(e) => setPin(e.target.value)}
+                placeholder="Min. 4 characters"
                 className="h-12 w-full rounded-xl bg-zinc-800 px-4 text-[16px] font-semibold text-zinc-100 outline-none ring-brand/60 focus:ring-2"
               />
             </div>
@@ -1590,7 +1762,15 @@ function EditWorkoutBody({
 
 // ───────────────────────── Backup & Data Management Sheet ─────────────────────────
 
-function BackupSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+function BackupSheet({
+  open,
+  onClose,
+  currentUser,
+}: {
+  open: boolean;
+  onClose: () => void;
+  currentUser: SafeUser | null;
+}) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
   const [isPersisted, setIsPersisted] = useState<boolean | null>(null);
@@ -1603,9 +1783,13 @@ function BackupSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
 
   const handleExport = async () => {
     try {
-      const data = await exportBackup();
+      if (!currentUser) {
+        toast('Sign in required for backup export', 'error');
+        return;
+      }
+      const data = await exportBackup(currentUser.id);
       const dateStr = new Date().toISOString().slice(0, 10);
-      downloadJSON(data, `lift-backup-${dateStr}.json`);
+      downloadJSON(data, `koyuncufit-backup-${dateStr}.json`);
       toast('Backup exported successfully', 'success');
     } catch {
       toast('Export failed', 'error');
@@ -1617,9 +1801,13 @@ function BackupSheet({ open, onClose }: { open: boolean; onClose: () => void }) 
     if (!file) return;
     setImporting(true);
     try {
+      if (!currentUser) {
+        toast('Sign in required for backup import', 'error');
+        return;
+      }
       const text = await file.text();
       const json = JSON.parse(text);
-      const res = await importBackup(json);
+      const res = await importBackup(json, currentUser.id);
       toast(`Imported ${res.workouts} workouts, ${res.routines} routines`, 'success', 3500);
       onClose();
     } catch (err: unknown) {

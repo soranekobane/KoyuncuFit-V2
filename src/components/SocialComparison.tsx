@@ -4,6 +4,7 @@ import {
   ArrowLeftRight,
   ChevronRight,
   Dumbbell,
+  Lock,
   Search,
   Sparkles,
   Trophy,
@@ -20,7 +21,7 @@ import {
   Tooltip,
   XAxis,
 } from 'recharts';
-import { db, type User, type Workout } from '../db';
+import { db, type PublicUser, type Routine, type Workout } from '../db';
 import {
   cn,
   epley1RM,
@@ -96,8 +97,8 @@ export function UserDirectoryModal({
 }: {
   open: boolean;
   onClose: () => void;
-  onSelectCompare?: (friend: User) => void;
-  onOpenFriendProfile?: (friend: User) => void;
+  onSelectCompare?: (friend: PublicUser) => void;
+  onOpenFriendProfile?: (friend: PublicUser) => void;
 }) {
   const { currentUser, users, isFollowing, followUser, unfollowUser, getFollowersCount, getFollowingCount } =
     useAuth();
@@ -225,7 +226,7 @@ export function UserDirectoryModal({
                           </div>
                           <div className="text-[12px] text-zinc-400">@{friend.username}</div>
                           <div className="mt-0.5 text-[11px] text-zinc-500">
-                            {friend.weightKg}kg · {friend.heightCm}cm · {friend.gender}
+                            Member since {fmtDate(friend.createdAt, { month: 'short', year: 'numeric' })}
                           </div>
                         </div>
                       </div>
@@ -310,7 +311,7 @@ export function CompareStrengthModal({
 }: {
   open: boolean;
   onClose: () => void;
-  initialFriend?: User | null;
+  initialFriend?: PublicUser | null;
 }) {
   const { currentUser, users } = useAuth();
   const [selectedFriendId, setSelectedFriendId] = useState<number | null>(() => initialFriend?.id ?? null);
@@ -348,13 +349,14 @@ export function CompareStrengthModal({
     [currentUser?.id],
   );
 
-  // Load friend workouts
+  // Load friend workouts (respect privacy: only if shareWorkouts !== false)
   const friendWorkouts = useLiveQuery<Workout[]>(
     async () => {
       if (!selectedFriend) return [];
+      if (selectedFriend.shareWorkouts === false) return [];
       return db.workouts.where('userId').equals(selectedFriend.id).toArray();
     },
-    [selectedFriend?.id],
+    [selectedFriend?.id, selectedFriend?.shareWorkouts],
   );
 
   // Compute metrics for both athletes
@@ -501,7 +503,7 @@ export function CompareStrengthModal({
                   <div className="font-extrabold text-[16px] text-zinc-100">{selectedFriend.name}</div>
                   <div className="text-[12px] text-zinc-400">@{selectedFriend.username}</div>
                   <div className="text-[11px] text-zinc-500 font-semibold">
-                    {selectedFriend.weightKg} kg
+                    Athlete
                   </div>
                 </div>
                 <div
@@ -734,14 +736,24 @@ function StrengthComparisonCard({
         <div
           className={cn(
             'rounded-full px-2.5 py-0.5 text-[11px] font-bold tabular tracking-tight shrink-0',
-            isWinning
+            deltaPct == null
+              ? 'bg-zinc-800 text-zinc-400'
+              : isWinning
               ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
               : isTied
               ? 'bg-zinc-800 text-zinc-400'
               : 'bg-zinc-800 text-zinc-300 border border-white/5',
           )}
         >
-          {isWinning ? `+${deltaPct}%` : isTied ? 'Equal' : `${deltaPct}%`}
+          {deltaPct == null
+            ? fVal === 0
+              ? 'Uncontested'
+              : '—'
+            : isWinning
+            ? `+${deltaPct}%`
+            : isTied
+            ? 'Equal'
+            : `${deltaPct}%`}
         </div>
       </div>
 
@@ -791,20 +803,31 @@ export function FriendProfileModal({
   onClose,
   onCompareWithFriend,
 }: {
-  friend: User | null;
+  friend: PublicUser | null;
   open: boolean;
   onClose: () => void;
-  onCompareWithFriend?: (friend: User) => void;
+  onCompareWithFriend?: (friend: PublicUser) => void;
 }) {
   const { isFollowing, followUser, unfollowUser, getFollowersCount, getFollowingCount } = useAuth();
 
+  const canSeeWorkouts = friend?.shareWorkouts !== false;
   // Load friend's workouts
   const workouts = useLiveQuery<Workout[]>(
     async () => {
-      if (!friend) return [];
+      if (!friend || !canSeeWorkouts) return [];
       return db.workouts.where('userId').equals(friend.id).reverse().sortBy('startedAt');
     },
-    [friend?.id],
+    [friend?.id, canSeeWorkouts],
+  );
+
+  const canSeeRoutines = friend?.shareRoutines === true;
+  // Load friend's public routines
+  const routines = useLiveQuery<Routine[]>(
+    async () => {
+      if (!friend || !canSeeRoutines) return [];
+      return db.routines.where('userId').equals(friend.id).sortBy('order');
+    },
+    [friend?.id, canSeeRoutines],
   );
 
   const following = friend ? isFollowing(friend.id) : false;
@@ -894,23 +917,25 @@ export function FriendProfileModal({
             </button>
           </div>
 
-          {/* Biometrics Strip */}
-          <div className="mt-4 grid grid-cols-4 gap-2 border-t border-white/5 pt-3.5 text-center">
-            <div className="rounded-xl bg-zinc-950/60 py-2">
-              <div className="text-[10px] font-semibold uppercase text-zinc-500">Weight</div>
-              <div className="mt-0.5 text-[14px] font-bold text-zinc-200">{friend.weightKg} kg</div>
+          {/* Privacy & Member Info Strip */}
+          <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-3 text-[12px] text-zinc-400">
+            <div>
+              Joined {fmtDate(friend.createdAt, { month: 'long', year: 'numeric' })}
             </div>
-            <div className="rounded-xl bg-zinc-950/60 py-2">
-              <div className="text-[10px] font-semibold uppercase text-zinc-500">Height</div>
-              <div className="mt-0.5 text-[14px] font-bold text-zinc-200">{friend.heightCm} cm</div>
-            </div>
-            <div className="rounded-xl bg-zinc-950/60 py-2">
-              <div className="text-[10px] font-semibold uppercase text-zinc-500">Age</div>
-              <div className="mt-0.5 text-[14px] font-bold text-zinc-200">{friend.age} yrs</div>
-            </div>
-            <div className="rounded-xl bg-zinc-950/60 py-2">
-              <div className="text-[10px] font-semibold uppercase text-zinc-500">Gender</div>
-              <div className="mt-0.5 text-[14px] font-bold text-zinc-200 uppercase">{friend.gender}</div>
+            <div className="flex items-center gap-1.5 text-zinc-400">
+              {friend.shareWorkouts === false ? (
+                <span className="flex items-center gap-1 text-amber-400">
+                  <Lock size={12} /> Workouts Private
+                </span>
+              ) : (
+                <span className="text-emerald-400">Workouts Public</span>
+              )}
+              <span>·</span>
+              {friend.shareRoutines ? (
+                <span className="text-emerald-400">Routines Shared</span>
+              ) : (
+                <span className="text-zinc-500">Routines Private</span>
+              )}
             </div>
           </div>
 
@@ -939,91 +964,130 @@ export function FriendProfileModal({
           <span>Gücünü Karşılaştır with {friend.name}</span>
         </button>
 
-        {/* Weekly Activity Bar Chart */}
-        <div className="rounded-3xl border border-white/[0.06] bg-zinc-900/90 p-5">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[16px] font-bold text-zinc-100">Activity Overview</h3>
-            <span className="text-[13px] font-semibold text-brand tabular">
-              {totalWorkouts} total workouts
-            </span>
+        {/* Privacy Notice OR Workouts */}
+        {!canSeeWorkouts ? (
+          <div className="rounded-3xl border border-white/[0.06] bg-zinc-900/90 p-6 text-center">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-amber-500/10 text-amber-400 mb-3">
+              <Lock size={22} />
+            </div>
+            <h3 className="text-[17px] font-bold text-zinc-100">Workout History is Private</h3>
+            <p className="mt-1 text-[13px] text-zinc-400 max-w-xs mx-auto">
+              @{friend.username} has chosen to keep their workout logs and strength data private.
+            </p>
           </div>
+        ) : (
+          <>
+            {/* Weekly Activity Bar Chart */}
+            <div className="rounded-3xl border border-white/[0.06] bg-zinc-900/90 p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[16px] font-bold text-zinc-100">Activity Overview</h3>
+                <span className="text-[13px] font-semibold text-brand tabular">
+                  {totalWorkouts} total workouts
+                </span>
+              </div>
 
-          <div className="mt-4 h-40 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
-                <XAxis dataKey="label" stroke="#71717a" fontSize={10} tickLine={false} />
-                <Tooltip
-                  cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
-                  content={({ active, payload }) => {
-                    if (active && payload && payload.length) {
-                      const data = payload[0].payload;
-                      return (
-                        <div className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-[12px] shadow-xl">
-                          <div className="font-semibold text-zinc-400">{data.label}</div>
-                          <div className="mt-0.5 font-bold text-brand">
-                            {data.count} workout{data.count === 1 ? '' : 's'}
+              <div className="mt-4 h-40 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ top: 10, right: 0, left: -25, bottom: 0 }}>
+                    <XAxis dataKey="label" stroke="#71717a" fontSize={10} tickLine={false} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
+                      content={({ active, payload }) => {
+                        if (active && payload && payload.length) {
+                          const data = payload[0].payload;
+                          return (
+                            <div className="rounded-xl border border-white/10 bg-zinc-950 px-3 py-2 text-[12px] shadow-xl">
+                              <div className="font-semibold text-zinc-400">{data.label}</div>
+                              <div className="mt-0.5 font-bold text-brand">
+                                {data.count} workout{data.count === 1 ? '' : 's'}
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Friend's Recent Workout History */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-[16px] font-bold text-zinc-100">Workout Logs</h3>
+                <span className="text-[12px] text-zinc-500">{totalWorkouts} sessions</span>
+              </div>
+
+              {!workouts || workouts.length === 0 ? (
+                <EmptyState
+                  icon={Dumbbell}
+                  title="No workouts recorded"
+                  text={`${friend.name} hasn't logged any workouts yet.`}
+                />
+              ) : (
+                <div className="space-y-3">
+                  {workouts.slice(0, 5).map((w) => (
+                    <div
+                      key={w.id}
+                      className="rounded-2xl border border-white/[0.06] bg-zinc-900/90 p-4 transition"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="font-bold text-[16px] text-zinc-100">{w.name}</div>
+                          <div className="text-[12px] text-zinc-500">
+                            {fmtDate(w.startedAt, { month: 'short', day: 'numeric', year: 'numeric' })} ·{' '}
+                            {fmtTime(w.startedAt)}
                           </div>
                         </div>
-                      );
-                    }
-                    return null;
-                  }}
-                />
-                <Bar dataKey="count" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
+                        <div className="text-right">
+                          <div className="text-[13px] font-bold text-zinc-200 tabular">
+                            {fmtVolume(w.totalVolume)}
+                          </div>
+                          <div className="text-[11px] text-zinc-500">{fmtDuration(w.durationSec)}</div>
+                        </div>
+                      </div>
 
-        {/* Friend's Recent Workout History */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-[16px] font-bold text-zinc-100">Workout Logs</h3>
-            <span className="text-[12px] text-zinc-500">{totalWorkouts} sessions</span>
-          </div>
-
-          {!workouts || workouts.length === 0 ? (
-            <EmptyState
-              icon={Dumbbell}
-              title="No workouts recorded"
-              text={`${friend.name} hasn't logged any workouts yet.`}
-            />
-          ) : (
-            <div className="space-y-3">
-              {workouts.slice(0, 5).map((w) => (
-                <div
-                  key={w.id}
-                  className="rounded-2xl border border-white/[0.06] bg-zinc-900/90 p-4 transition"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="font-bold text-[16px] text-zinc-100">{w.name}</div>
-                      <div className="text-[12px] text-zinc-500">
-                        {fmtDate(w.startedAt, { month: 'short', day: 'numeric', year: 'numeric' })} ·{' '}
-                        {fmtTime(w.startedAt)}
+                      {/* Exercises summary */}
+                      <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-white/5 pt-2 text-[11px] text-zinc-400">
+                        {w.exercises.map((e) => (
+                          <span key={e.uid} className="rounded bg-zinc-800/80 px-2 py-0.5">
+                            {e.sets.length} × {e.name}
+                          </span>
+                        ))}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="text-[13px] font-bold text-zinc-200 tabular">
-                        {fmtVolume(w.totalVolume)}
-                      </div>
-                      <div className="text-[11px] text-zinc-500">{fmtDuration(w.durationSec)}</div>
-                    </div>
-                  </div>
-
-                  {/* Exercises summary */}
-                  <div className="mt-2.5 flex flex-wrap gap-1.5 border-t border-white/5 pt-2 text-[11px] text-zinc-400">
-                    {w.exercises.map((e) => (
-                      <span key={e.uid} className="rounded bg-zinc-800/80 px-2 py-0.5">
-                        {e.sets.length} × {e.name}
-                      </span>
-                    ))}
-                  </div>
+                  ))}
                 </div>
-              ))}
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
+
+        {/* Friend's Public Routines (only when friend.shareRoutines === true) */}
+        {canSeeRoutines && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-[16px] font-bold text-zinc-100">Shared Routines</h3>
+              <span className="text-[12px] text-emerald-400 font-semibold">Public</span>
+            </div>
+            {!routines || routines.length === 0 ? (
+              <div className="rounded-2xl border border-white/[0.06] bg-zinc-900/60 p-4 text-[13px] text-zinc-400 text-center">
+                No public routines shared yet.
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                {routines.map((r) => (
+                  <div key={r.id} className="rounded-2xl border border-white/[0.06] bg-zinc-900/90 p-4">
+                    <div className="font-bold text-[15px] text-zinc-100">{r.name}</div>
+                    <div className="mt-1 text-[12px] text-zinc-400">{r.exercises.length} exercises</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </Sheet>
   );
