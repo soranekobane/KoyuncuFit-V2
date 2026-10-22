@@ -1,3 +1,4 @@
+import 'fake-indexeddb/auto';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -7,7 +8,8 @@ import {
   parseHevyDate,
   parseHevyWorkoutsCSV,
 } from '../src/lib/hevyImport';
-import type { Exercise } from '../src/db';
+import { db, type Exercise, type Workout } from '../src/db';
+import { importHevyWorkouts, repairImportedWorkouts } from '../src/lib/cloudDb';
 
 describe('Hevy CSV Workout Importer', () => {
   it('parses RFC 4180 CSV strings with quotes, commas, and newlines correctly', () => {
@@ -191,5 +193,290 @@ describe('Hevy CSV Workout Importer', () => {
     // Total Push Volume: 2720 kg
     assert.equal(pushWorkout?.totalVolume, 2720);
     assert.ok((pushWorkout?.caloriesBurned ?? 0) > 100);
+  });
+
+  it('accurately parses Turkish dates matching workout_data.csv format', () => {
+    // 28 Şub 2025, 15:41
+    const tsSub = parseHevyDate('28 Şub 2025, 15:41');
+    const dSub = new Date(tsSub);
+    assert.equal(dSub.getFullYear(), 2025);
+    assert.equal(dSub.getMonth(), 1); // February = 1
+    assert.equal(dSub.getDate(), 28);
+    assert.equal(dSub.getHours(), 15);
+    assert.equal(dSub.getMinutes(), 41);
+
+    // 19 Eki 2026, 10:18
+    const tsEki = parseHevyDate('19 Eki 2026, 10:18');
+    const dEki = new Date(tsEki);
+    assert.equal(dEki.getFullYear(), 2026);
+    assert.equal(dEki.getMonth(), 9); // October = 9
+    assert.equal(dEki.getDate(), 19);
+    assert.equal(dEki.getHours(), 10);
+    assert.equal(dEki.getMinutes(), 18);
+
+    // 17 Oca 2023, 15:59
+    const tsOca = parseHevyDate('17 Oca 2023, 15:59');
+    const dOca = new Date(tsOca);
+    assert.equal(dOca.getFullYear(), 2023);
+    assert.equal(dOca.getMonth(), 0); // January = 0
+    assert.equal(dOca.getDate(), 17);
+    assert.equal(dOca.getHours(), 15);
+    assert.equal(dOca.getMinutes(), 59);
+  });
+
+  it('maps all Turkish Hevy exercise names to canonical catalog exercises', () => {
+    const catalog: Exercise[] = [
+      {
+        id: 163,
+        name: 'Barbell Bench Press',
+        muscleGroup: 'Chest',
+        equipment: 'Barbell',
+        isCustom: false,
+        createdAt: 0,
+        primaryMuscles: ['Chest'],
+        secondaryMuscles: ['Triceps'],
+        metValue: 5.5,
+      },
+      {
+        id: 2,
+        name: 'Incline Bench Press',
+        muscleGroup: 'Chest',
+        equipment: 'Barbell',
+        isCustom: false,
+        createdAt: 0,
+        primaryMuscles: ['Chest'],
+        secondaryMuscles: ['Front Delts'],
+        metValue: 5.5,
+      },
+      {
+        id: 27,
+        name: 'Squat',
+        muscleGroup: 'Legs',
+        equipment: 'Barbell',
+        isCustom: false,
+        createdAt: 0,
+        primaryMuscles: ['Quadriceps'],
+        secondaryMuscles: ['Glutes'],
+        metValue: 6.0,
+      },
+      {
+        id: 24,
+        name: 'Pull Up',
+        muscleGroup: 'Back',
+        equipment: 'Bodyweight',
+        isCustom: false,
+        createdAt: 0,
+        primaryMuscles: ['Lats'],
+        secondaryMuscles: ['Biceps'],
+        metValue: 5.0,
+      },
+      {
+        id: 11,
+        name: 'Push Up',
+        muscleGroup: 'Chest',
+        equipment: 'Bodyweight',
+        isCustom: false,
+        createdAt: 0,
+        primaryMuscles: ['Chest'],
+        secondaryMuscles: ['Triceps'],
+        metValue: 4.0,
+      },
+      {
+        id: 8,
+        name: 'Pec Deck',
+        muscleGroup: 'Chest',
+        equipment: 'Machine',
+        isCustom: false,
+        createdAt: 0,
+        primaryMuscles: ['Chest'],
+        secondaryMuscles: [],
+        metValue: 4.5,
+      },
+      {
+        id: 57,
+        name: 'EZ Bar Curl',
+        muscleGroup: 'Biceps',
+        equipment: 'Barbell',
+        isCustom: false,
+        createdAt: 0,
+        primaryMuscles: ['Biceps'],
+        secondaryMuscles: ['Forearms'],
+        metValue: 4.5,
+      },
+      {
+        id: 67,
+        name: 'Skull Crusher',
+        muscleGroup: 'Triceps',
+        equipment: 'Barbell',
+        isCustom: false,
+        createdAt: 0,
+        primaryMuscles: ['Triceps'],
+        secondaryMuscles: [],
+        metValue: 4.5,
+      },
+      {
+        id: 50,
+        name: 'Rear Delt Fly',
+        muscleGroup: 'Shoulders',
+        equipment: 'Dumbbell',
+        isCustom: false,
+        createdAt: 0,
+        primaryMuscles: ['Rear Delts'],
+        secondaryMuscles: [],
+        metValue: 4.5,
+      },
+    ];
+
+    // "Bench Press (Bar)" MUST match "Barbell Bench Press" (id: 163), exactly like "Bench Press (Barbell)"
+    const bp1 = matchExerciseInCatalog('Bench Press (Bar)', catalog);
+    const bp2 = matchExerciseInCatalog('Bench Press (Barbell)', catalog);
+    assert.ok(bp1);
+    assert.ok(bp2);
+    assert.equal(bp1?.id, 163);
+    assert.equal(bp2?.id, 163);
+    assert.equal(bp1?.name, 'Barbell Bench Press');
+
+    // Incline Bench Press (Bar)
+    const inc = matchExerciseInCatalog('Incline Bench Press (Bar)', catalog);
+    assert.ok(inc);
+    assert.equal(inc?.id, 2);
+
+    // Squat (Bar)
+    const sq = matchExerciseInCatalog('Squat (Bar)', catalog);
+    assert.ok(sq);
+    assert.equal(sq?.id, 27);
+
+    // Barfiks -> Pull Up
+    const pu = matchExerciseInCatalog('Barfiks', catalog);
+    assert.ok(pu);
+    assert.equal(pu?.id, 24);
+
+    // Şınav -> Push Up
+    const su = matchExerciseInCatalog('Şınav', catalog);
+    assert.ok(su);
+    assert.equal(su?.id, 11);
+
+    // Butterfly (Pec Deck) -> Pec Deck
+    const pd = matchExerciseInCatalog('Butterfly (Pec Deck)', catalog);
+    assert.ok(pd);
+    assert.equal(pd?.id, 8);
+
+    // EZ Bar Biceps Curl -> EZ Bar Curl
+    const ez = matchExerciseInCatalog('EZ Bar Biceps Curl', catalog);
+    assert.ok(ez);
+    assert.equal(ez?.id, 57);
+
+    // Skullcrusher (Bar) -> Skull Crusher
+    const sc = matchExerciseInCatalog('Skullcrusher (Bar)', catalog);
+    assert.ok(sc);
+    assert.equal(sc?.id, 67);
+
+    // Rear Delt Reverse Fly (Makine) -> Rear Delt Fly
+    const rd = matchExerciseInCatalog('Rear Delt Reverse Fly (Makine)', catalog);
+    assert.ok(rd);
+    assert.equal(rd?.id, 50);
+  });
+
+  it('overwrites existing workouts on re-import and repairs unmapped Turkish exercises', async () => {
+    // 1. Seed catalog exercise Barbell Bench Press (id: 163)
+    await db.exercises.put({
+      id: 163,
+      name: 'Barbell Bench Press',
+      muscleGroup: 'Chest',
+      equipment: 'Barbell',
+      isCustom: false,
+      createdAt: 0,
+      primaryMuscles: ['Chest'],
+      secondaryMuscles: ['Triceps'],
+      metValue: 5.5,
+    });
+
+    // 2. Insert an old broken workout with custom exercise "Bench Press (Bar)" (id: 1329)
+    await db.exercises.put({
+      id: 1329,
+      name: 'Bench Press (Bar)',
+      muscleGroup: 'Chest',
+      equipment: 'Barbell',
+      isCustom: true,
+      createdAt: Date.now(),
+      primaryMuscles: ['Chest'],
+      secondaryMuscles: [],
+      metValue: 5.0,
+    });
+
+    const testTime = 1673967540000; // Jan 17, 2023
+    await db.workouts.put({
+      id: 'old_workout_1',
+      userId: 'test_user',
+      name: 'push1',
+      startedAt: testTime,
+      endedAt: testTime + 3600000,
+      durationSec: 3600,
+      notes: '',
+      exercises: [
+        {
+          uid: 'we_old_1',
+          exerciseId: 1329,
+          name: 'Bench Press (Bar)',
+          muscleGroup: 'Chest',
+          equipment: 'Barbell',
+          sets: [{ uid: 's1', type: 'normal', weight: 100, reps: 5 }],
+        },
+      ],
+      exerciseIds: [1329],
+      totalVolume: 500,
+      totalSets: 1,
+      caloriesBurned: 200,
+    });
+
+    // 3. Run repairImportedWorkouts
+    const repairResult = await repairImportedWorkouts('test_user');
+    assert.equal(repairResult.repairedCount, 1);
+
+    // 4. Verify workout is repaired to Barbell Bench Press (id: 163)
+    const repaired = await db.workouts.get('old_workout_1');
+    assert.ok(repaired);
+    assert.equal(repaired?.exercises[0].exerciseId, 163);
+    assert.equal(repaired?.exercises[0].name, 'Barbell Bench Press');
+    assert.deepEqual(repaired?.exerciseIds, [163]);
+
+    // 5. Verify orphaned custom exercise 1329 was cleaned up
+    const orphan = await db.exercises.get(1329);
+    assert.equal(orphan, undefined);
+
+    // 6. Test re-import overwrite
+    const newWorkoutVersion: Workout = {
+      id: 'new_temp_id',
+      userId: 'test_user',
+      name: 'push1',
+      startedAt: testTime,
+      endedAt: testTime + 4000000,
+      durationSec: 4000,
+      notes: 'Updated notes',
+      exercises: [
+        {
+          uid: 'we_new_1',
+          exerciseId: 163,
+          name: 'Barbell Bench Press',
+          muscleGroup: 'Chest',
+          equipment: 'Barbell',
+          sets: [{ uid: 's2', type: 'normal', weight: 110, reps: 6 }],
+        },
+      ],
+      exerciseIds: [163],
+      totalVolume: 660,
+      totalSets: 1,
+      caloriesBurned: 250,
+    };
+
+    const importRes = await importHevyWorkouts('test_user', [newWorkoutVersion]);
+    assert.equal(importRes.importedCount, 1);
+    assert.equal(importRes.updatedCount, 1);
+    assert.equal(importRes.skippedCount, 0);
+
+    const reimported = await db.workouts.get('old_workout_1');
+    assert.ok(reimported);
+    assert.equal(reimported?.totalVolume, 660);
+    assert.equal(reimported?.notes, 'Updated notes');
   });
 });

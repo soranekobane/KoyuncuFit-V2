@@ -325,21 +325,75 @@ function HevySummaryTab({
     return { level: 'Elite', pct: 95, percentile: 'Top 3% of lifters' };
   }, [strengthRatio]);
 
-  // Set Records Table: 1..12 Reps Max
+  // Set Records Table: 1..10 Reps Max (Personal Records)
   const repRecords = useMemo(() => {
-    const list: { reps: number; weight: number; actualReps: number; ts: number }[] = [];
-    for (let r = 1; r <= 12; r++) {
+    const list: {
+      reps: number;
+      weight: number;
+      actualWeight?: number;
+      actualReps: number;
+      ts: number;
+      isEstimated?: boolean;
+    }[] = [];
+
+    // 1. Calculate best Estimated 1RM and actual 1RM
+    let bestE1: { e1RM: number; weight: number; reps: number; ts: number } | null = null;
+    let bestActual1RM: { weight: number; ts: number } | null = null;
+
+    for (const s of sessions) {
+      for (const set of s.sets) {
+        if (!isWorkingSet(set.type) || !set.weight || !set.reps) continue;
+        const e1 = epley1RM(set.weight, set.reps);
+        if (!bestE1 || e1 > bestE1.e1RM) {
+          bestE1 = { e1RM: e1, weight: set.weight, reps: set.reps, ts: s.ts };
+        }
+        if (set.reps === 1) {
+          if (!bestActual1RM || set.weight > bestActual1RM.weight) {
+            bestActual1RM = { weight: set.weight, ts: s.ts };
+          }
+        }
+      }
+    }
+
+    // 1 RM entry: Prefer actual 1RM if >= best estimated 1RM, otherwise best estimated 1RM
+    if (bestActual1RM && (!bestE1 || bestActual1RM.weight >= bestE1.e1RM)) {
+      list.push({
+        reps: 1,
+        weight: bestActual1RM.weight,
+        actualReps: 1,
+        ts: bestActual1RM.ts,
+        isEstimated: false,
+      });
+    } else if (bestE1) {
+      list.push({
+        reps: 1,
+        weight: Number(bestE1.e1RM.toFixed(1)),
+        actualWeight: bestE1.weight,
+        actualReps: bestE1.reps,
+        ts: bestE1.ts,
+        isEstimated: bestE1.reps > 1,
+      });
+    }
+
+    // 2..10 RM entries: best set where set.reps >= r (break ties by higher reps, then latest ts)
+    for (let r = 2; r <= 10; r++) {
       let best: { weight: number; actualReps: number; ts: number } | null = null;
       for (const s of sessions) {
         for (const set of s.sets) {
           if (!isWorkingSet(set.type) || set.reps < r) continue;
-          if (!best || set.weight > best.weight) {
+          if (
+            !best ||
+            set.weight > best.weight ||
+            (set.weight === best.weight && set.reps > best.actualReps) ||
+            (set.weight === best.weight && set.reps === best.actualReps && s.ts > best.ts)
+          ) {
             best = { weight: set.weight, actualReps: set.reps, ts: s.ts };
           }
         }
       }
       if (best) list.push({ reps: r, ...best });
     }
+
     return list;
   }, [sessions]);
 
@@ -507,7 +561,7 @@ function HevySummaryTab({
         <p className="mt-2 text-[12px] text-zinc-400">{strengthInfo.percentile}</p>
       </div>
 
-      {/* Set Records Table: 1..12 RM */}
+      {/* Set Records Table: 1..10 RM */}
       <div className="rounded-2xl border border-white/[0.06] bg-zinc-950/60 overflow-hidden">
         <div className="grid grid-cols-[70px_1fr_auto] gap-2 border-b border-white/5 bg-zinc-900/60 px-4 py-2.5 text-[11px] font-bold tracking-wider uppercase text-zinc-500">
           <div>Reps</div>
@@ -531,11 +585,15 @@ function HevySummaryTab({
                 </div>
                 <div className="font-semibold tabular text-zinc-100">
                   {fmtNum(r.weight, 1)} kg
-                  {r.actualReps > r.reps && (
+                  {r.isEstimated && r.actualWeight ? (
+                    <span className="ml-1 text-[12px] font-normal text-zinc-400">
+                      (est. {fmtNum(r.actualWeight, 1)} kg × {r.actualReps})
+                    </span>
+                  ) : r.actualReps > r.reps ? (
                     <span className="ml-1 text-[12px] font-normal text-zinc-500">
                       ({r.actualReps} reps)
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 <div className="text-[12px] text-zinc-500">{fmtShortDate(r.ts)}</div>
               </div>

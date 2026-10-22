@@ -29,6 +29,7 @@ import {
   type ProfilePatch,
   type RegisterInput,
 } from './auth';
+import { matchExerciseInCatalog } from './hevyImport';
 
 // ───────────────────────── Helpers ─────────────────────────
 
@@ -327,13 +328,15 @@ export async function cloudDeleteWorkout(workoutId: Id, userId: Id): Promise<voi
 
 export interface ImportWorkoutsResult {
   importedCount: number;
+  updatedCount: number;
   skippedCount: number;
   totalSets: number;
 }
 
 /**
  * Saves imported workouts scoped to the user in local Dexie and batch-upserts to Supabase.
- * Deduplicates by startedAt + name to prevent double-importing existing sessions.
+ * Overwrites/updates existing sessions matching (startedAt + name) so re-importing cleanly
+ * replaces broken or outdated records.
  */
 export async function importHevyWorkouts(
   userId: Id,
@@ -350,45 +353,53 @@ export async function importHevyWorkouts(
     }
   }
 
-  // 2. Fetch existing local workouts for this user to deduplicate
+  // 2. Fetch existing local workouts for this user
   const existingLocal = await db.workouts
     .where('userId')
     .equals(userId)
     .toArray();
 
-  const existingKeys = new Set(
-    existingLocal.map((w) => `${w.startedAt}_${w.name.trim().toLowerCase()}`),
-  );
+  const existingMap = new Map<string, Workout>();
+  for (const w of existingLocal) {
+    const key = `${w.startedAt}_${w.name.trim().toLowerCase()}`;
+    existingMap.set(key, w);
+  }
 
-  const workoutsToInsert: Workout[] = [];
-  let skippedCount = 0;
+  const workoutsToSave: Workout[] = [];
+  let updatedCount = 0;
+  let newCount = 0;
   let totalSets = 0;
 
   for (const w of workouts) {
     const key = `${w.startedAt}_${w.name.trim().toLowerCase()}`;
-    if (existingKeys.has(key)) {
-      skippedCount++;
-      continue;
+    const existing = existingMap.get(key);
+    const resolvedId = existing ? existing.id : w.id;
+
+    if (existing) {
+      updatedCount++;
+    } else {
+      newCount++;
     }
-    existingKeys.add(key);
-    workoutsToInsert.push({
+
+    workoutsToSave.push({
       ...w,
+      id: resolvedId,
       userId,
     });
     totalSets += w.totalSets;
   }
 
   // 3. Save to local Dexie
-  if (workoutsToInsert.length > 0) {
-    await db.workouts.bulkPut(workoutsToInsert as unknown as any);
+  if (workoutsToSave.length > 0) {
+    await db.workouts.bulkPut(workoutsToSave as unknown as any);
   }
 
   // 4. Batch upsert into Supabase cloud
-  if (isSupabaseConfigured() && workoutsToInsert.length > 0) {
+  if (isSupabaseConfigured() && workoutsToSave.length > 0) {
     try {
       const CHUNK_SIZE = 50;
-      for (let i = 0; i < workoutsToInsert.length; i += CHUNK_SIZE) {
-        const chunk = workoutsToInsert.slice(i, i + CHUNK_SIZE);
+      for (let i = 0; i < workoutsToSave.length; i += CHUNK_SIZE) {
+        const chunk = workoutsToSave.slice(i, i + CHUNK_SIZE);
         const cloudRows = chunk.map((w) => ({
           id: String(w.id),
           user_id: String(userId),
@@ -418,11 +429,140 @@ export async function importHevyWorkouts(
     }
   }
 
+  // 5. Automatically repair any exercise mappings or references
+  try {
+    await repairImportedWorkouts(userId);
+  } catch (err) {
+    console.warn('Auto-repair after import warning:', err);
+  }
+
   return {
-    importedCount: workoutsToInsert.length,
-    skippedCount,
+    importedCount: workoutsToSave.length,
+    updatedCount,
+    skippedCount: 0,
     totalSets,
   };
+}
+
+/**
+ * Auto-repairs existing imported workouts for an athlete.
+ * Re-evaluates all exercises in every workout against the canonical catalog,
+ * merges Turkish/custom exercise variations into the official catalog exercises,
+ * recalculates volume/exerciseIds, cleans up orphaned custom exercises,
+ * and syncs the repaired records to both IndexedDB and Supabase.
+ */
+export async function repairImportedWorkouts(userId: Id): Promise<{ repairedCount: number }> {
+  const userWorkouts = await db.workouts
+    .where('userId')
+    .equals(userId)
+    .toArray();
+
+  if (userWorkouts.length === 0) {
+    return { repairedCount: 0 };
+  }
+
+  const allExercises = await db.exercises.toArray();
+  const exById = new Map<number, Exercise>(allExercises.map((e) => [e.id, e]));
+
+  const modifiedWorkouts: Workout[] = [];
+
+  for (const w of userWorkouts) {
+    let workoutModified = false;
+
+    for (const we of w.exercises) {
+      const currentEx = exById.get(we.exerciseId);
+      const exName = we.name || currentEx?.name || '';
+
+      const matched = matchExerciseInCatalog(exName, allExercises);
+      if (matched && matched.id !== we.exerciseId) {
+        we.exerciseId = matched.id;
+        we.name = matched.name;
+        we.muscleGroup = matched.muscleGroup;
+        we.equipment = matched.equipment;
+        workoutModified = true;
+      }
+    }
+
+    if (workoutModified) {
+      w.exerciseIds = Array.from(new Set(w.exercises.map((e) => e.exerciseId)));
+
+      let vol = 0;
+      let setsCount = 0;
+      for (const e of w.exercises) {
+        for (const s of e.sets) {
+          if (s.reps > 0) {
+            vol += (s.weight || 0) * s.reps;
+            setsCount++;
+          }
+        }
+      }
+      w.totalVolume = Math.round(vol);
+      w.totalSets = setsCount;
+      modifiedWorkouts.push(w);
+    }
+  }
+
+  if (modifiedWorkouts.length > 0) {
+    // 1. Bulk put updated workouts into Dexie
+    await db.workouts.bulkPut(modifiedWorkouts as unknown as any);
+
+    // 2. Batch upsert into Supabase cloud
+    if (isSupabaseConfigured()) {
+      try {
+        const CHUNK_SIZE = 50;
+        for (let i = 0; i < modifiedWorkouts.length; i += CHUNK_SIZE) {
+          const chunk = modifiedWorkouts.slice(i, i + CHUNK_SIZE);
+          const cloudRows = chunk.map((w) => ({
+            id: String(w.id),
+            user_id: String(userId),
+            name: w.name,
+            routine_id: w.routineId ? String(w.routineId) : null,
+            started_at: w.startedAt,
+            ended_at: w.endedAt,
+            duration_sec: w.durationSec,
+            notes: w.notes || '',
+            exercises: w.exercises,
+            exercise_ids: w.exerciseIds,
+            total_volume: w.totalVolume,
+            total_sets: w.totalSets,
+            calories_burned: w.caloriesBurned ?? 0,
+            created_at: w.startedAt,
+          }));
+
+          const { error } = await supabase.from('workouts').upsert(cloudRows, {
+            onConflict: 'id',
+          });
+          if (error) {
+            console.warn('Supabase batch upsert repaired workouts warning:', error.message);
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase repair sync error:', err);
+      }
+    }
+
+    // 3. Clean up orphaned custom exercises that are no longer used by any workout
+    try {
+      const allActiveWorkouts = await db.workouts.toArray();
+      const usedExerciseIds = new Set<number>();
+      for (const wk of allActiveWorkouts) {
+        for (const we of wk.exercises) {
+          usedExerciseIds.add(we.exerciseId);
+        }
+      }
+
+      const customExercises = allExercises.filter((e) => e.isCustom && e.id >= 1000);
+      for (const ce of customExercises) {
+        if (!usedExerciseIds.has(ce.id)) {
+          await db.exercises.delete(ce.id);
+        }
+      }
+    } catch {
+      // Ignore cleanup error
+    }
+  }
+
+  return { repairedCount: modifiedWorkouts.length };
 }
 
 // ───────────────────────── Routines ─────────────────────────

@@ -297,8 +297,8 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
       );
 
       const msg = syncResult.importedCount > 0
-        ? `${syncResult.importedCount} antrenman verisi başarıyla içe aktarıldı ve buluta senkronize edildi!${
-            syncResult.skippedCount > 0 ? ` (${syncResult.skippedCount} mevcut antrenman atlandı)` : ''
+        ? `${syncResult.importedCount} antrenman verisi başarıyla aktarıldı ve buluta senkronize edildi!${
+            syncResult.updatedCount > 0 ? ` (${syncResult.updatedCount} mevcut kayıt güncellendi)` : ''
           }`
         : 'Antrenman verileri başarıyla içe aktarıldı ve buluta senkronize edildi!';
       toast(msg, 'success', 5000);
@@ -1862,7 +1862,7 @@ function BackupSheet({
       );
 
       const msg = `${syncResult.importedCount} antrenman ve ${syncResult.totalSets} set başarıyla Hevy'den aktarıldı ve Supabase buluta senkronize edildi!${
-        syncResult.skippedCount > 0 ? ` (${syncResult.skippedCount} mevcut antrenman atlandı)` : ''
+        syncResult.updatedCount > 0 ? ` (${syncResult.updatedCount} mevcut kayıt güncellendi)` : ''
       }`;
       toast(msg, 'success', 5000);
       onClose();

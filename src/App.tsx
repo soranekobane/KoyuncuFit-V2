@@ -32,6 +32,7 @@ import { WorkoutPage } from './pages/WorkoutPage';
 import { RoutinesPage } from './pages/RoutinesPage';
 import { ExercisesPage } from './pages/ExercisesPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { repairImportedWorkouts } from './lib/cloudDb';
 
 type Tab = 'routines' | 'workout' | 'exercises' | 'profile';
 
@@ -67,6 +68,15 @@ function WorkoutApp() {
         });
     }
   }, []);
+
+  // Automatically repair imported workout exercise mappings on load
+  useEffect(() => {
+    if (currentUser?.id) {
+      void repairImportedWorkouts(currentUser.id).catch((err) => {
+        console.warn('repairImportedWorkouts error:', err);
+      });
+    }
+  }, [currentUser?.id]);
 
   const elapsedSec = w.active ? Math.max(0, (now - w.active.startedAt) / 1000) : 0;
   const activeTotals = w.active ? liveTotals(w.active.exercises) : { volume: 0, sets: 0 };

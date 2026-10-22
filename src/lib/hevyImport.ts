@@ -79,6 +79,7 @@ export function parseCSV(text: string): string[][] {
 }
 
 const MONTHS_MAP: Record<string, number> = {
+  // English full & abbr
   jan: 0,
   january: 0,
   feb: 1,
@@ -103,23 +104,36 @@ const MONTHS_MAP: Record<string, number> = {
   november: 10,
   dec: 11,
   december: 11,
-  // Common Turkish localized month names
+
+  // Turkish full & 3-letter abbreviations (e.g. 19 Eki, 28 Şub, 17 Oca)
+  oca: 0,
   ocak: 0,
+  sub: 1,
+  şub: 1,
   subat: 1,
   şubat: 1,
   mart: 2,
+  nis: 3,
   nisan: 3,
   mayis: 4,
   mayıs: 4,
+  haz: 5,
   haziran: 5,
+  tem: 6,
   temmuz: 6,
+  agu: 7,
+  ağu: 7,
   agustos: 7,
   ağustos: 7,
+  eyl: 8,
   eylul: 8,
   eylül: 8,
+  eki: 9,
   ekim: 9,
+  kas: 10,
   kasim: 10,
   kasım: 10,
+  ara: 11,
   aralik: 11,
   aralık: 11,
 };
@@ -128,26 +142,51 @@ const MONTHS_MAP: Record<string, number> = {
  * Parses Hevy's datetime strings into epoch timestamps (ms).
  * Handles:
  * - "21 Oct 2026, 17:30" or "21 Oct 2026, 17:30:00"
- * - "21 Oct 2026 17:30"
+ * - "19 Eki 2026, 10:18" or "28 Şub 2025, 15:41" or "17 Oca 2023, 15:59" (Turkish Hevy export)
  * - "2026-10-21 17:30:00" or ISO format
- * - "10/21/2026 17:30"
+ * - "21.10.2026 17:30" or "21/10/2026 17:30"
  */
 export function parseHevyDate(dateStr: string): number {
   if (!dateStr || !dateStr.trim()) return Date.now();
-  const trimmed = dateStr.trim();
+  const trimmed = dateStr.trim().replace(/^["']|["']$/g, '').trim();
 
-  // Pattern: "21 Oct 2026, 17:30" or "21 Oct 2026 17:30:00"
+  // Pattern: "21 Oct 2026, 17:30" or "28 Şub 2025, 15:41" or "19 Eki 2026 10:18"
   const dmyMatch = trimmed.match(
-    /^(\d{1,2})\s+([A-Za-zçğıöşüÇĞİÖŞÜ]+)\s+(\d{4})(?:,\s*|\s+)(\d{1,2}):(\d{2})(?::(\d{2}))?/i,
+    /^(\d{1,2})\s+([A-Za-zçğıöşüÇĞİÖŞÜ.]+)\s+(\d{4})(?:,\s*|\s+)(\d{1,2}):(\d{2})(?::(\d{2}))?/i,
   );
   if (dmyMatch) {
     const day = parseInt(dmyMatch[1], 10);
-    const monthKey = dmyMatch[2].toLowerCase();
-    const month = MONTHS_MAP[monthKey] ?? 0;
-    const year = parseInt(dmyMatch[3], 10);
-    const hour = parseInt(dmyMatch[4], 10);
-    const min = parseInt(dmyMatch[5], 10);
-    const sec = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+    const rawMonth = dmyMatch[2].toLowerCase().replace(/\./g, '');
+    const cleanMonth = rawMonth
+      .replace(/ı/g, 'i')
+      .replace(/İ/g, 'i')
+      .replace(/ğ/g, 'g')
+      .replace(/ü/g, 'u')
+      .replace(/ş/g, 's')
+      .replace(/ö/g, 'o')
+      .replace(/ç/g, 'c');
+
+    const month = MONTHS_MAP[rawMonth] ?? MONTHS_MAP[cleanMonth];
+    if (month !== undefined) {
+      const year = parseInt(dmyMatch[3], 10);
+      const hour = parseInt(dmyMatch[4], 10);
+      const min = parseInt(dmyMatch[5], 10);
+      const sec = dmyMatch[6] ? parseInt(dmyMatch[6], 10) : 0;
+      return new Date(year, month, day, hour, min, sec).getTime();
+    }
+  }
+
+  // Pattern: "21.10.2026 17:30" or "21/10/2026 17:30"
+  const dmyNumMatch = trimmed.match(
+    /^(\d{1,2})[./-](\d{1,2})[./-](\d{4})(?:,\s*|\s+)(\d{1,2}):(\d{2})(?::(\d{2}))?/,
+  );
+  if (dmyNumMatch) {
+    const day = parseInt(dmyNumMatch[1], 10);
+    const month = parseInt(dmyNumMatch[2], 10) - 1;
+    const year = parseInt(dmyNumMatch[3], 10);
+    const hour = parseInt(dmyNumMatch[4], 10);
+    const min = parseInt(dmyNumMatch[5], 10);
+    const sec = dmyNumMatch[6] ? parseInt(dmyNumMatch[6], 10) : 0;
     return new Date(year, month, day, hour, min, sec).getTime();
   }
 
@@ -185,6 +224,174 @@ export function normalizeExerciseName(rawName: string): string {
 }
 
 /**
+ * Translates Turkish Hevy exercise terminology to standard English terms.
+ */
+export function translateTurkishExerciseTerms(name: string): string {
+  let s = name.trim();
+  s = s.replace(/\((?:bar|halter)\)/gi, '(Barbell)');
+  s = s.replace(/\((?:dambıl|dambil)\)/gi, '(Dumbbell)');
+  s = s.replace(/\((?:makine|makina)\)/gi, '(Machine)');
+  s = s.replace(/\((?:kablo)\)/gi, '(Cable)');
+  s = s.replace(/\((?:destekli)\)/gi, '(Assisted)');
+  s = s.replace(/\((?:vücut ağırlığı|vucut agirligi)\)/gi, '(Bodyweight)');
+  s = s.replace(/\((?:smith machine|smith)\)/gi, '(Smith Machine)');
+
+  s = s.replace(/\bbarfiks\b/gi, 'Pull Up');
+  s = s.replace(/\bşınav\b|\bsinav\b/gi, 'Push Up');
+  s = s.replace(/\boturarak\b/gi, 'Seated');
+  s = s.replace(/\bayakta\b/gi, 'Standing');
+  s = s.replace(/\btek kol\b/gi, 'Single Arm');
+  s = s.replace(/\btek bacak\b/gi, 'Single Leg');
+  s = s.replace(/\bv tutuş\b|\bv tutus\b/gi, 'V Grip');
+  return s;
+}
+
+/**
+ * Comprehensive Turkish-to-Canonical exercise mapping dictionary.
+ * Maps all Turkish Hevy names directly to catalog titles.
+ */
+export const TURKISH_HEVY_EXERCISE_MAP: Record<string, string> = {
+  // Bench Press
+  'bench press (bar)': 'Barbell Bench Press',
+  'bench press (barbell)': 'Barbell Bench Press',
+  'bench press': 'Barbell Bench Press',
+  'incline bench press (bar)': 'Incline Bench Press',
+  'incline bench press (barbell)': 'Incline Bench Press',
+  'incline barbell bench press': 'Incline Bench Press',
+  'incline bench press (dambıl)': 'Dumbbell Incline Bench Press',
+  'incline bench press (dambil)': 'Dumbbell Incline Bench Press',
+  'incline bench press (dumbbell)': 'Dumbbell Incline Bench Press',
+  'incline bench press (smith machine)': 'Smith Incline Bench Press',
+  'bench press (dambıl)': 'Dumbbell Bench Press',
+  'bench press (dambil)': 'Dumbbell Bench Press',
+  'bench press (dumbbell)': 'Dumbbell Bench Press',
+  'decline bench press (bar)': 'Decline Bench Press',
+  'decline bench press (barbell)': 'Decline Bench Press',
+
+  // Squat & Deadlift
+  'squat (bar)': 'Squat',
+  'squat (barbell)': 'Squat',
+  'barbell squat': 'Squat',
+  'squat': 'Squat',
+  'squat (smith machine)': 'Smith Squat',
+  'deadlift (bar)': 'Barbell Deadlift',
+  'deadlift (barbell)': 'Barbell Deadlift',
+  'deadlift': 'Barbell Deadlift',
+  'deadlift (dambıl)': 'Dumbbell Deadlift',
+  'deadlift (dambil)': 'Dumbbell Deadlift',
+  'deadlift (dumbbell)': 'Dumbbell Deadlift',
+  'romanian deadlift (bar)': 'Romanian Deadlift',
+  'romanian deadlift (barbell)': 'Romanian Deadlift',
+  'romanian deadlift (dambıl)': 'Dumbbell Romanian Deadlift',
+  'romanian deadlift (dambil)': 'Dumbbell Romanian Deadlift',
+  'romanian deadlift (dumbbell)': 'Dumbbell Romanian Deadlift',
+
+  // Rows & Pulls
+  'bent over row (bar)': 'Barbell Row',
+  'bent over row (barbell)': 'Barbell Row',
+  'bent over barbell row': 'Barbell Row',
+  'barbell row': 'Barbell Row',
+  'barfiks': 'Pull Up',
+  'pull up': 'Pull Up',
+  'pull up (bodyweight)': 'Pull Up',
+  'şınav': 'Push Up',
+  'sinav': 'Push Up',
+  'lat pulldown (cable)': 'Lat Pulldown',
+  'lat pulldown (makine)': 'Lat Pulldown',
+  'lat pulldown (machine)': 'Lat Pulldown',
+  'lat pulldown': 'Lat Pulldown',
+  'seated cable row - v grip (cable)': 'Seated Cable Row',
+  'oturarak cable row - v tutuş': 'Seated Cable Row',
+  'oturarak cable row - v tutus': 'Seated Cable Row',
+  'oturarak cable row': 'Seated Cable Row',
+  'seated cable row': 'Seated Cable Row',
+
+  // Shoulders
+  'overhead press (bar)': 'Overhead Press',
+  'overhead press (barbell)': 'Overhead Press',
+  'overhead press': 'Overhead Press',
+  'overhead press (dambıl)': 'Shoulder Press',
+  'overhead press (dambil)': 'Shoulder Press',
+  'overhead press (dumbbell)': 'Shoulder Press',
+  'shoulder press (dambıl)': 'Shoulder Press',
+  'shoulder press (dambil)': 'Shoulder Press',
+  'shoulder press (dumbbell)': 'Shoulder Press',
+  'oturarak shoulder press (makine)': 'Shoulder Press',
+  'seated machine shoulder press': 'Shoulder Press',
+  'lateral raise (dambıl)': 'Dumbbell Lateral Raise',
+  'lateral raise (dambil)': 'Dumbbell Lateral Raise',
+  'lateral raise (dumbbell)': 'Dumbbell Lateral Raise',
+  'lateral raise': 'Dumbbell Lateral Raise',
+  'oturarak lateral raise (dambıl)': 'Dumbbell Seated Lateral Raise',
+  'oturarak lateral raise (dambil)': 'Dumbbell Seated Lateral Raise',
+  'seated lateral raise': 'Dumbbell Seated Lateral Raise',
+  'rear delt reverse fly (makine)': 'Rear Delt Fly',
+  'rear delt reverse fly (machine)': 'Rear Delt Fly',
+  'rear delt reverse fly (cable)': 'Rear Delt Fly',
+  'reverse fly (cable)': 'Rear Delt Fly',
+  'rear delt fly': 'Rear Delt Fly',
+
+  // Arms: Biceps & Triceps
+  'bicep curl (dambıl)': 'Dumbbell Curl',
+  'bicep curl (dambil)': 'Dumbbell Curl',
+  'bicep curl (dumbbell)': 'Dumbbell Curl',
+  'bicep curl (bar)': 'Barbell Curl',
+  'bicep curl (barbell)': 'Barbell Curl',
+  'bicep curl (cable)': 'Cable Curl',
+  'hammer curl (dambıl)': 'Hammer Curl',
+  'hammer curl (dambil)': 'Hammer Curl',
+  'hammer curl (dumbbell)': 'Hammer Curl',
+  'hammer curl': 'Hammer Curl',
+  'oturarak incline curl (dambıl)': 'Incline Dumbbell Curl',
+  'oturarak incline curl (dambil)': 'Incline Dumbbell Curl',
+  'incline dumbbell curl': 'Incline Dumbbell Curl',
+  'ez bar biceps curl': 'EZ Bar Curl',
+  'ez bar curl': 'EZ Bar Curl',
+  'triceps pushdown': 'Triceps Pushdown',
+  'triceps rope pushdown': 'Triceps Pushdown',
+  'tricep pushdown': 'Triceps Pushdown',
+  'triceps extension (dambıl)': 'Triceps Extension',
+  'triceps extension (dambil)': 'Triceps Extension',
+  'dumbbell triceps extension': 'Triceps Extension',
+  'triceps extension (cable)': 'Cable Overhead Triceps Extension (Rope Attachment)',
+  'overhead triceps extension (cable)': 'Cable Overhead Triceps Extension (Rope Attachment)',
+  'cable overhead triceps extension': 'Cable Overhead Triceps Extension (Rope Attachment)',
+  'skullcrusher (bar)': 'Skull Crusher',
+  'skullcrusher (barbell)': 'Skull Crusher',
+  'skullcrusher (dambıl)': 'Skull Crusher',
+  'skullcrusher (dambil)': 'Skull Crusher',
+  'skullcrusher': 'Skull Crusher',
+
+  // Chest Flies
+  'butterfly (pec deck)': 'Pec Deck',
+  'chest fly (makine)': 'Pec Deck',
+  'pec deck': 'Pec Deck',
+  'pec deck / machine fly': 'Pec Deck',
+  'incline chest fly (dambıl)': 'Dumbbell Incline Fly',
+  'incline chest fly (dambil)': 'Dumbbell Incline Fly',
+  'incline chest fly (dumbbell)': 'Dumbbell Incline Fly',
+  'chest fly (dambıl)': 'Dumbbell Fly',
+  'chest fly (dambil)': 'Dumbbell Fly',
+  'chest fly (dumbbell)': 'Dumbbell Fly',
+  'low cable fly crossovers': 'Cable Crossover',
+  'cable crossover': 'Cable Crossover',
+
+  // Legs
+  'leg press (makine)': 'Leg Press',
+  'leg press horizontal (makine)': 'Leg Press',
+  'leg press': 'Leg Press',
+  'leg extension (makine)': 'Leg Extension',
+  'leg extension': 'Leg Extension',
+  'oturarak leg curl (makine)': 'Seated Leg Curl',
+  'lying leg curl (makine)': 'Lying Leg Curl',
+  'ayakta calf raise (makine)': 'Standing Calf Raise',
+  'ayakta calf raise (halter)': 'Standing Calf Raise',
+  'calf press (makine)': 'Standing Calf Raise',
+  'oturarak calf raise': 'Seated Calf Raise',
+  'seated calf raise': 'Seated Calf Raise',
+};
+
+/**
  * Normalizes exercise name without equipment keywords.
  */
 export function stripEquipmentTokens(rawName: string): string {
@@ -203,25 +410,49 @@ export function matchExerciseInCatalog(hevyName: string, catalog: Exercise[]): E
   if (!hevyName || !catalog || catalog.length === 0) return null;
 
   const rawTrimmed = hevyName.trim().toLowerCase();
-  const normalized = normalizeExerciseName(hevyName);
-  const words = normalized.split(' ').filter(Boolean).sort().join(' ');
-  const stripped = stripEquipmentTokens(hevyName);
 
-  // 1. Exact case-insensitive match
+  // 1. Check Turkish-to-Canonical dictionary first
+  if (TURKISH_HEVY_EXERCISE_MAP[rawTrimmed]) {
+    const canonicalTarget = TURKISH_HEVY_EXERCISE_MAP[rawTrimmed].toLowerCase();
+    const exactTarget = catalog.find((e) => e.name.toLowerCase() === canonicalTarget);
+    if (exactTarget) return exactTarget;
+    const partialTarget = catalog.find(
+      (e) =>
+        e.name.toLowerCase().includes(canonicalTarget) ||
+        canonicalTarget.includes(e.name.toLowerCase()),
+    );
+    if (partialTarget) return partialTarget;
+  }
+
+  // 2. Translate generic Turkish terminology (e.g. "(Bar)" -> "(Barbell)", "Barfiks" -> "Pull Up")
+  const translated = translateTurkishExerciseTerms(hevyName);
+  const translatedLower = translated.toLowerCase();
+  if (TURKISH_HEVY_EXERCISE_MAP[translatedLower]) {
+    const canonicalTarget = TURKISH_HEVY_EXERCISE_MAP[translatedLower].toLowerCase();
+    const exactTarget = catalog.find((e) => e.name.toLowerCase() === canonicalTarget);
+    if (exactTarget) return exactTarget;
+  }
+
+  // 3. Exact case-insensitive match on original and translated name
   for (const ex of catalog) {
-    if (ex.name.trim().toLowerCase() === rawTrimmed) {
+    const exLower = ex.name.trim().toLowerCase();
+    if (exLower === rawTrimmed || exLower === translatedLower) {
       return ex;
     }
   }
 
-  // 2. Normalized match
+  const normalized = normalizeExerciseName(translated);
+  const words = normalized.split(' ').filter(Boolean).sort().join(' ');
+  const stripped = stripEquipmentTokens(translated);
+
+  // 4. Normalized match
   for (const ex of catalog) {
     if (normalizeExerciseName(ex.name) === normalized) {
       return ex;
     }
   }
 
-  // 3. Word token set equality (e.g. "Bench Press (Barbell)" vs "Barbell Bench Press")
+  // 5. Word token set equality (e.g. "Bench Press (Barbell)" vs "Barbell Bench Press")
   for (const ex of catalog) {
     const exWords = normalizeExerciseName(ex.name).split(' ').filter(Boolean).sort().join(' ');
     if (exWords === words) {
@@ -229,7 +460,7 @@ export function matchExerciseInCatalog(hevyName: string, catalog: Exercise[]): E
     }
   }
 
-  // 4. Match stripped equipment names if equipment is identical
+  // 6. Match stripped equipment names if equipment is identical
   if (stripped.length > 2) {
     for (const ex of catalog) {
       const exStripped = stripEquipmentTokens(ex.name);
@@ -239,7 +470,7 @@ export function matchExerciseInCatalog(hevyName: string, catalog: Exercise[]): E
     }
   }
 
-  // 5. Starts-with / substring match if strong overlap
+  // 7. Substring overlap match
   for (const ex of catalog) {
     const exNorm = normalizeExerciseName(ex.name);
     if (normalized.includes(exNorm) || exNorm.includes(normalized)) {
