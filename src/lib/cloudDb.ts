@@ -9,6 +9,7 @@ import {
   db,
   toPublicUser,
   toSafeUser,
+  type Exercise,
   type Id,
   type PublicUser,
   type Routine,
@@ -322,6 +323,106 @@ export async function cloudDeleteWorkout(workoutId: Id, userId: Id): Promise<voi
       console.warn('cloudDeleteWorkout sync error:', err);
     }
   }
+}
+
+export interface ImportWorkoutsResult {
+  importedCount: number;
+  skippedCount: number;
+  totalSets: number;
+}
+
+/**
+ * Saves imported workouts scoped to the user in local Dexie and batch-upserts to Supabase.
+ * Deduplicates by startedAt + name to prevent double-importing existing sessions.
+ */
+export async function importHevyWorkouts(
+  userId: Id,
+  workouts: Workout[],
+  createdExercises?: Exercise[],
+): Promise<ImportWorkoutsResult> {
+  // 1. If custom exercises were synthesized, persist them locally
+  if (createdExercises && createdExercises.length > 0) {
+    for (const ex of createdExercises) {
+      const exists = await db.exercises.get(ex.id);
+      if (!exists) {
+        await db.exercises.put(ex);
+      }
+    }
+  }
+
+  // 2. Fetch existing local workouts for this user to deduplicate
+  const existingLocal = await db.workouts
+    .where('userId')
+    .equals(userId)
+    .toArray();
+
+  const existingKeys = new Set(
+    existingLocal.map((w) => `${w.startedAt}_${w.name.trim().toLowerCase()}`),
+  );
+
+  const workoutsToInsert: Workout[] = [];
+  let skippedCount = 0;
+  let totalSets = 0;
+
+  for (const w of workouts) {
+    const key = `${w.startedAt}_${w.name.trim().toLowerCase()}`;
+    if (existingKeys.has(key)) {
+      skippedCount++;
+      continue;
+    }
+    existingKeys.add(key);
+    workoutsToInsert.push({
+      ...w,
+      userId,
+    });
+    totalSets += w.totalSets;
+  }
+
+  // 3. Save to local Dexie
+  if (workoutsToInsert.length > 0) {
+    await db.workouts.bulkPut(workoutsToInsert as unknown as any);
+  }
+
+  // 4. Batch upsert into Supabase cloud
+  if (isSupabaseConfigured() && workoutsToInsert.length > 0) {
+    try {
+      const CHUNK_SIZE = 50;
+      for (let i = 0; i < workoutsToInsert.length; i += CHUNK_SIZE) {
+        const chunk = workoutsToInsert.slice(i, i + CHUNK_SIZE);
+        const cloudRows = chunk.map((w) => ({
+          id: String(w.id),
+          user_id: String(userId),
+          name: w.name,
+          routine_id: w.routineId ? String(w.routineId) : null,
+          started_at: w.startedAt,
+          ended_at: w.endedAt,
+          duration_sec: w.durationSec,
+          notes: w.notes || '',
+          exercises: w.exercises,
+          exercise_ids: w.exerciseIds,
+          total_volume: w.totalVolume,
+          total_sets: w.totalSets,
+          calories_burned: w.caloriesBurned ?? 0,
+          created_at: w.startedAt,
+        }));
+
+        const { error } = await supabase.from('workouts').upsert(cloudRows, {
+          onConflict: 'id',
+        });
+        if (error) {
+          console.warn('Supabase batch upsert workouts warning:', error.message);
+        }
+      }
+    } catch (err) {
+      console.warn('importHevyWorkouts cloud sync error:', err);
+    }
+  }
+
+  return {
+    importedCount: workoutsToInsert.length,
+    skippedCount,
+    totalSets,
+  };
 }
 
 // ───────────────────────── Routines ─────────────────────────

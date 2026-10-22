@@ -8,6 +8,7 @@ import {
   Download,
   Dumbbell,
   Ellipsis,
+  FileSpreadsheet,
   FileUp,
   Flame,
   Lock,
@@ -30,7 +31,8 @@ import {
   XAxis,
 } from 'recharts';
 import { db, exportBackup, importBackup, type Id, type PublicUser, type SafeUser, type Workout } from '../db';
-import { cloudDeleteWorkout, cloudSaveWorkout } from '../lib/cloudDb';
+import { cloudDeleteWorkout, cloudSaveWorkout, importHevyWorkouts } from '../lib/cloudDb';
+import { parseHevyWorkoutsCSV } from '../lib/hevyImport';
 import { type ProfilePatch, type RegisterInput } from '../lib/auth';
 import {
   UserDirectoryModal,
@@ -1687,7 +1689,9 @@ function BackupSheet({
   currentUser: SafeUser | null;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const hevyFileInputRef = useRef<HTMLInputElement>(null);
   const [importing, setImporting] = useState(false);
+  const [importingHevy, setImportingHevy] = useState(false);
   const [isPersisted, setIsPersisted] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -1730,6 +1734,53 @@ function BackupSheet({
     } finally {
       setImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleHevyCSVChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportingHevy(true);
+    try {
+      if (!currentUser) {
+        toast('Giriş yapmanız gerekiyor', 'error');
+        return;
+      }
+      const text = await file.text();
+      const catalog = await db.exercises.toArray();
+      const parseResult = await parseHevyWorkoutsCSV(text, {
+        userId: currentUser.id,
+        catalog,
+        userProfile: {
+          weightKg: currentUser.weightKg,
+          heightCm: currentUser.heightCm,
+          age: currentUser.age,
+          gender: currentUser.gender,
+          bodyFatPercentage: currentUser.bodyFatPercentage,
+        },
+      });
+
+      if (parseResult.workouts.length === 0) {
+        toast('Geçerli Hevy antrenmanı bulunamadı (.csv dosyasını kontrol edin)', 'error');
+        return;
+      }
+
+      const syncResult = await importHevyWorkouts(
+        currentUser.id,
+        parseResult.workouts,
+        parseResult.createdExercises,
+      );
+
+      const msg = `${syncResult.importedCount} antrenman ve ${syncResult.totalSets} set başarıyla Hevy'den aktarıldı ve Supabase buluta senkronize edildi!${
+        syncResult.skippedCount > 0 ? ` (${syncResult.skippedCount} mevcut antrenman atlandı)` : ''
+      }`;
+      toast(msg, 'success', 5000);
+      onClose();
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Hevy CSV dosyası içe aktarılamadı', 'error');
+    } finally {
+      setImportingHevy(false);
+      if (hevyFileInputRef.current) hevyFileInputRef.current.value = '';
     }
   };
 
@@ -1782,6 +1833,42 @@ function BackupSheet({
           </div>
         </div>
 
+        {/* Hevy CSV Workout Importer */}
+        <div className="rounded-2xl border border-brand/40 bg-gradient-to-br from-brand/15 via-zinc-950/80 to-zinc-950/80 p-4 shadow-lg shadow-brand/10">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand text-white shadow-md shadow-brand/30">
+              <FileSpreadsheet size={20} />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[16px] font-bold text-zinc-100">Import from Hevy (CSV)</span>
+                <span className="rounded-md bg-brand/20 px-1.5 py-0.5 text-[10px] font-extrabold text-brand border border-brand/30">
+                  HEVY
+                </span>
+              </div>
+              <div className="mt-0.5 text-[13px] text-zinc-400">
+                Hevy uygulamasından dışa aktardığınız <code className="text-zinc-300">workouts.csv</code> dosyasını aktarın
+              </div>
+            </div>
+          </div>
+          <input
+            ref={hevyFileInputRef}
+            type="file"
+            accept=".csv,text/csv,text/comma-separated-values"
+            onChange={handleHevyCSVChange}
+            className="hidden"
+          />
+          <button
+            id="import-hevy-csv-btn"
+            onClick={() => hevyFileInputRef.current?.click()}
+            disabled={importingHevy}
+            className="mt-3.5 flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-[15px] font-bold text-white shadow-md shadow-brand/25 transition active:scale-[0.98] hover:bg-brand/90 disabled:opacity-40"
+          >
+            <FileSpreadsheet size={17} />
+            <span>{importingHevy ? 'Hevy Aktarılıyor & Senkronize Ediliyor…' : "Hevy'den Aktar (.csv)"}</span>
+          </button>
+        </div>
+
         <div className="rounded-2xl border border-white/[0.06] bg-zinc-950/60 p-4">
           <div className="flex items-center gap-3">
             <div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-brand/15 text-brand">
@@ -1795,7 +1882,7 @@ function BackupSheet({
           <button
             id="export-backup-btn"
             onClick={handleExport}
-            className="mt-3.5 flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-3 text-[15px] font-semibold text-white shadow-md shadow-brand/20 transition active:scale-[0.98]"
+            className="mt-3.5 flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-800 py-3 text-[15px] font-semibold text-zinc-200 transition active:scale-[0.98] active:bg-zinc-700"
           >
             <Download size={16} /> Download JSON Backup
           </button>
