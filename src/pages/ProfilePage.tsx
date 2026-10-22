@@ -4,8 +4,6 @@ import {
   Activity,
   Calendar,
   Check,
-  ChevronLeft,
-  ChevronRight,
   Clock,
   Download,
   Dumbbell,
@@ -26,6 +24,7 @@ import {
 import {
   Bar,
   BarChart,
+  Cell,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -74,6 +73,7 @@ import {
 import { WorkoutExercisesEditor } from '../components/workout/ExerciseCard';
 import { ExerciseDetailSheet } from '../components/ExerciseDetail';
 import { BodyDistributionModal } from '../components/AnatomyMap';
+import { WorkoutCalendarModal } from '../components/WorkoutCalendarModal';
 
 type ChartMetric = 'duration' | 'volume' | 'reps';
 
@@ -107,6 +107,7 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
   const [bodyDistOpen, setBodyDistOpen] = useState(false);
   const [biometricsOpen, setBiometricsOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
+  const [calendarFocusDate, setCalendarFocusDate] = useState<Date | null>(null);
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
   const [backupSheetOpen, setBackupSheetOpen] = useState(false);
 
@@ -155,7 +156,7 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
 
   // 12-week activity chart data
   const { chartData, thisWeekStat } = useMemo(() => {
-    const list: { weekIndex: number; label: string; durationHours: number; volumeKg: number; reps: number }[] = [];
+    const list: { weekIndex: number; startDate: number; label: string; durationHours: number; volumeKg: number; reps: number }[] = [];
     const nowTs = Date.now();
     const currentWeekStart = startOfWeek(nowTs);
     const ONE_WEEK_MS = 7 * 86400000;
@@ -181,6 +182,7 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
       const label = i === 0 ? 'This Wk' : `${d.getDate()} ${d.toLocaleString('en-US', { month: 'short' })}`;
       list.push({
         weekIndex: 11 - i,
+        startDate: wStart,
         label,
         durationHours: Number((durationSec / 3600).toFixed(1)),
         volumeKg,
@@ -414,14 +416,54 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
 
         {/* Weekly Activity Bar Chart (Last 12 Weeks) */}
         <section className="rounded-3xl border border-white/[0.06] bg-zinc-900/90 p-5">
-          <div className="flex items-baseline justify-between">
-            <h3 className="text-[17px] font-bold text-zinc-100">Weekly Activity</h3>
-            <span className="text-[13px] font-semibold text-brand tabular">{thisWeekStat}</span>
+          <div
+            onClick={() => {
+              setCalendarFocusDate(new Date());
+              setCalendarOpen(true);
+            }}
+            className="flex items-center justify-between cursor-pointer group select-none"
+            title="Takvimi Aç"
+          >
+            <div className="flex items-center gap-2">
+              <h3 className="text-[17px] font-bold text-zinc-100 group-hover:text-brand transition flex items-center gap-1.5">
+                Weekly Activity
+              </h3>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-semibold text-brand tabular">{thisWeekStat}</span>
+              <button
+                type="button"
+                id="weekly-activity-calendar-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCalendarFocusDate(new Date());
+                  setCalendarOpen(true);
+                }}
+                className="flex items-center gap-1.5 rounded-xl border border-brand/30 bg-brand/10 hover:bg-brand/20 px-2.5 py-1 text-[12px] font-bold text-brand transition active:scale-95"
+                title="Takvim / Calendar"
+                aria-label="Takvim / Calendar"
+              >
+                <Calendar size={13} className="text-brand" />
+                <span>Takvim</span>
+              </button>
+            </div>
           </div>
 
           <div className="mt-4 h-48 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 10, right: 4, left: -25, bottom: 0 }}>
+              <BarChart
+                data={chartData}
+                margin={{ top: 10, right: 4, left: -25, bottom: 0 }}
+                onClick={(state: any) => {
+                  if (state && state.activePayload && state.activePayload.length) {
+                    const data = state.activePayload[0].payload;
+                    if (data?.startDate) {
+                      setCalendarFocusDate(new Date(data.startDate));
+                      setCalendarOpen(true);
+                    }
+                  }
+                }}
+              >
                 <XAxis
                   dataKey="label"
                   stroke="#71717a"
@@ -444,6 +486,7 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
                         <div className="rounded-xl border border-white/10 bg-zinc-950/95 px-3 py-2 text-[12px] shadow-xl">
                           <div className="font-semibold text-zinc-400">{data.label}</div>
                           <div className="mt-0.5 font-bold text-brand text-[14px]">{valStr}</div>
+                          <div className="mt-1 text-[10px] text-zinc-500">Takvimi açmak için tıkla</div>
                         </div>
                       );
                     }
@@ -460,7 +503,19 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
                   }
                   fill="#3b82f6"
                   radius={[5, 5, 0, 0]}
-                />
+                  className="cursor-pointer"
+                >
+                  {chartData.map((entry, index) => (
+                    <Cell
+                      key={`bar-cell-${index}`}
+                      className="cursor-pointer hover:opacity-80 transition-opacity"
+                      onClick={() => {
+                        setCalendarFocusDate(new Date(entry.startDate));
+                        setCalendarOpen(true);
+                      }}
+                    />
+                  ))}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -468,7 +523,10 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
           {/* 3 Metric Toggle Pills */}
           <div className="mt-4 flex rounded-xl bg-zinc-950/80 p-1">
             <button
-              onClick={() => setMetric('duration')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMetric('duration');
+              }}
               className={cn(
                 'flex-1 rounded-lg py-2 text-[13px] font-semibold transition active:scale-95',
                 metric === 'duration'
@@ -479,7 +537,10 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
               Duration
             </button>
             <button
-              onClick={() => setMetric('volume')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMetric('volume');
+              }}
               className={cn(
                 'flex-1 rounded-lg py-2 text-[13px] font-semibold transition active:scale-95',
                 metric === 'volume'
@@ -490,7 +551,10 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
               Volume
             </button>
             <button
-              onClick={() => setMetric('reps')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMetric('reps');
+              }}
               className={cn(
                 'flex-1 rounded-lg py-2 text-[13px] font-semibold transition active:scale-95',
                 metric === 'reps'
@@ -557,7 +621,10 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
             {/* Tile 4: Calendar */}
             <button
               id="dashboard-calendar-tile"
-              onClick={() => setCalendarOpen(true)}
+              onClick={() => {
+                setCalendarFocusDate(new Date());
+                setCalendarOpen(true);
+              }}
               className="flex flex-col justify-between rounded-2xl border border-white/[0.06] bg-zinc-900/90 p-4 text-left transition active:scale-[0.98] active:bg-zinc-800"
             >
               <div className="grid h-10 w-10 place-items-center rounded-xl bg-orange-500/15 text-orange-400 shadow-sm">
@@ -624,15 +691,17 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
         avgWorkoutCalories={avgWorkoutCalories}
       />
 
-      {/* Workout Calendar Sheet */}
-      <CalendarSheet
+      {/* Interactive Workout Calendar Modal */}
+      <WorkoutCalendarModal
         open={calendarOpen}
         onClose={() => setCalendarOpen(false)}
         workouts={workouts ?? []}
+        initialDate={calendarFocusDate}
         onOpenWorkout={(w) => {
           setSelectedWorkout(w);
           setMenuOpen(true);
         }}
+        onOpenDetail={(exerciseId) => setDetailExerciseId(exerciseId)}
       />
 
       {/* Account Switcher & Add User Modal */}
@@ -1475,171 +1544,6 @@ function AccountSwitcherSheet({
                 {loading ? 'Creating…' : 'Register Account'}
               </button>
             </div>
-          </div>
-        )}
-      </div>
-    </Sheet>
-  );
-}
-
-// ───────────────────────── Full Calendar Sheet ─────────────────────────
-
-function CalendarSheet({
-  open,
-  onClose,
-  workouts,
-  onOpenWorkout,
-}: {
-  open: boolean;
-  onClose: () => void;
-  workouts: Workout[];
-  onOpenWorkout: (w: Workout) => void;
-}) {
-  const [currentMonthDate, setCurrentMonthDate] = useState(() => new Date());
-
-  const year = currentMonthDate.getFullYear();
-  const month = currentMonthDate.getMonth();
-
-  const monthLabel = currentMonthDate.toLocaleString('en-US', { month: 'long', year: 'numeric' });
-
-  // Compute days in month
-  const firstDayOfMonth = new Date(year, month, 1);
-  const startDayIdx = (firstDayOfMonth.getDay() + 6) % 7; // Monday = 0
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-  // Map workouts by date string YYYY-MM-DD
-  const workoutsByDate = useMemo(() => {
-    const map = new Map<string, Workout[]>();
-    for (const w of workouts) {
-      const d = new Date(w.startedAt);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(w);
-    }
-    return map;
-  }, [workouts]);
-
-  const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
-
-  const selectedWorkouts = selectedDayKey ? workoutsByDate.get(selectedDayKey) ?? [] : [];
-
-  const handlePrevMonth = () => {
-    setCurrentMonthDate(new Date(year, month - 1, 1));
-    setSelectedDayKey(null);
-  };
-
-  const handleNextMonth = () => {
-    setCurrentMonthDate(new Date(year, month + 1, 1));
-    setSelectedDayKey(null);
-  };
-
-  return (
-    <Sheet
-      open={open}
-      onClose={onClose}
-      full
-      title="Workout Calendar"
-      left={<SheetTextButton onClick={onClose}>Done</SheetTextButton>}
-    >
-      <div className="space-y-5 px-4 pb-28 pt-2">
-        {/* Month Selector */}
-        <div className="flex items-center justify-between rounded-2xl border border-white/[0.06] bg-zinc-950/60 px-4 py-3">
-          <button
-            onClick={handlePrevMonth}
-            className="grid h-8 w-8 place-items-center rounded-lg bg-zinc-800 text-zinc-300 active:scale-95"
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <div className="text-[17px] font-bold text-zinc-100">{monthLabel}</div>
-          <button
-            onClick={handleNextMonth}
-            className="grid h-8 w-8 place-items-center rounded-lg bg-zinc-800 text-zinc-300 active:scale-95"
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
-
-        {/* Days of Week Header */}
-        <div className="grid grid-cols-7 gap-1 text-center text-[12px] font-bold text-zinc-500">
-          <div>M</div>
-          <div>T</div>
-          <div>W</div>
-          <div>T</div>
-          <div>F</div>
-          <div>S</div>
-          <div>S</div>
-        </div>
-
-        {/* Calendar Grid */}
-        <div className="grid grid-cols-7 gap-1.5">
-          {Array.from({ length: startDayIdx }).map((_, i) => (
-            <div key={`empty-${i}`} className="h-11" />
-          ))}
-
-          {Array.from({ length: daysInMonth }).map((_, i) => {
-            const dayNum = i + 1;
-            const key = `${year}-${String(month + 1).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-            const dayWorkouts = workoutsByDate.get(key) ?? [];
-            const hasWorkout = dayWorkouts.length > 0;
-            const isSelected = selectedDayKey === key;
-
-            return (
-              <button
-                key={key}
-                onClick={() => setSelectedDayKey(key === selectedDayKey ? null : key)}
-                className={cn(
-                  'relative flex h-11 flex-col items-center justify-center rounded-xl text-[14px] font-semibold transition active:scale-95',
-                  isSelected && 'ring-2 ring-brand',
-                  hasWorkout
-                    ? 'bg-brand text-white font-bold shadow-md shadow-brand/30'
-                    : 'bg-zinc-900/60 text-zinc-400 hover:text-zinc-200',
-                )}
-              >
-                <span>{dayNum}</span>
-                {hasWorkout && (
-                  <span className="text-[9px] leading-none opacity-90">
-                    🔥 {dayWorkouts[0]?.caloriesBurned ? `${dayWorkouts[0].caloriesBurned}` : ''}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Selected Day Workouts List */}
-        {selectedDayKey && (
-          <div className="rounded-2xl border border-white/[0.06] bg-zinc-950/80 p-4">
-            <div className="text-[14px] font-bold text-zinc-200">
-              {new Date(selectedDayKey).toLocaleDateString('en-US', {
-                weekday: 'long',
-                month: 'short',
-                day: 'numeric',
-              })}
-            </div>
-
-            {selectedWorkouts.length === 0 ? (
-              <div className="mt-2 text-[13px] text-zinc-500">No workouts logged on this day.</div>
-            ) : (
-              <div className="mt-3 space-y-2">
-                {selectedWorkouts.map((w) => (
-                  <div
-                    key={w.id}
-                    onClick={() => onOpenWorkout(w)}
-                    className="flex items-center justify-between rounded-xl bg-zinc-900 p-3 transition cursor-pointer active:bg-zinc-800"
-                  >
-                    <div>
-                      <div className="font-bold text-zinc-100">{w.name}</div>
-                      <div className="mt-0.5 text-[12px] text-zinc-400">
-                        {fmtDuration(w.durationSec)} · {fmtVolume(w.totalVolume)} · {w.totalSets} sets
-                      </div>
-                    </div>
-                    <div className="font-bold text-amber-400 text-[14px] tabular">
-                      🔥 {w.caloriesBurned || 0} kcal
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
       </div>
