@@ -1,5 +1,5 @@
 /* Offline-first service worker: network-first for pages, stale-while-revalidate for assets. */
-const CACHE = 'koyuncufit-v4';
+const CACHE = 'koyuncufit-v5';
 const SHELL = [
   '/',
   '/index.html',

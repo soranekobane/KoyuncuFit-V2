@@ -193,6 +193,7 @@ export function ExerciseCard({ ex, index, count, live, beforeTs, excludeWorkoutI
   const [restOpen, setRestOpen] = useState(false);
 
   const { currentUser } = useAuth();
+  const dbExercise = useLiveQuery(() => db.exercises.get(ex.exerciseId), [ex.exerciseId]);
   const hist = useLiveQuery(async () => {
     const list = await db.workouts.where('exerciseIds').equals(ex.exerciseId).toArray();
     const prior = list
@@ -248,7 +249,10 @@ export function ExerciseCard({ ex, index, count, live, beforeTs, excludeWorkoutI
   return (
     <section className="animate-slide-up overflow-hidden rounded-2xl border border-white/[0.06] bg-zinc-900 shadow-lg shadow-black/30">
       <div className="flex items-center gap-3 px-4 pt-3.5">
-        <ExerciseThumbnail name={ex.name} muscle={ex.muscleGroup} equipment={ex.equipment} size={40} />
+        <ExerciseThumbnail
+          exercise={dbExercise ?? { name: ex.name, muscleGroup: ex.muscleGroup, equipment: ex.equipment }}
+          size={40}
+        />
         <button onClick={() => onOpenDetail(ex.exerciseId)} className="min-w-0 flex-1 text-left">
           <div className="truncate text-[17px] font-semibold text-brand">{ex.name}</div>
           <div className="text-[12px] text-zinc-500">

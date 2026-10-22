@@ -300,3 +300,28 @@ describe('KoyuncuFit Social Privacy & Comparison Math', () => {
     assert.equal(stats.bestSetDesc, '90kg × 8');
   });
 });
+
+describe('KoyuncuFit Exercise Catalog & Anatomy Mapping', () => {
+  it('seeds 1,300+ exercises with GIFs and anatomical muscle groups', async () => {
+    await db.open();
+    const count = await db.exercises.count();
+    assert.ok(count >= 1320, `Expected at least 1,320 exercises, found ${count}`);
+
+    const benchPress = await db.exercises.get(1);
+    assert.ok(benchPress, 'Bench Press (ID 1) must exist');
+    assert.equal(benchPress.name, 'Bench Press');
+    assert.equal(benchPress.muscleGroup, 'Chest');
+    assert.ok(benchPress.gifUrl?.includes('.gif'), 'Must have animation GIF');
+    assert.ok(benchPress.primaryMuscles.includes('Chest'), 'Must map to Chest');
+
+    const squat = await db.exercises.get(27);
+    assert.ok(squat, 'Squat (ID 27) must exist');
+    assert.equal(squat.name, 'Squat');
+    assert.equal(squat.muscleGroup, 'Legs');
+
+    const highIndex = await db.exercises.get(100);
+    assert.ok(highIndex, 'High-index exercises must be present');
+    assert.ok(highIndex.gifUrl?.startsWith('https://cdn.jsdelivr.net'), 'CDN URL must be configured');
+  });
+});
+

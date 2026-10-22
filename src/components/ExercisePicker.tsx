@@ -159,7 +159,7 @@ function PickerBody({ mode, onSelect, onClose }: PickerProps) {
                 className={cn('flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors active:bg-white/5', isSel && 'bg-brand/10')}
               >
                 <div className="relative">
-                  <ExerciseThumbnail name={ex.name} muscle={ex.muscleGroup} equipment={ex.equipment} size={42} />
+                  <ExerciseThumbnail exercise={ex} size={42} />
                   {isSel && (
                     <div className="absolute -right-0.5 -bottom-0.5 grid h-5 w-5 animate-pop place-items-center rounded-full bg-brand ring-2 ring-zinc-900">
                       <Check size={12} strokeWidth={3.5} />

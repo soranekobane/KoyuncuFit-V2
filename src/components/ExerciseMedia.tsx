@@ -7,7 +7,14 @@ interface ExerciseThumbnailProps {
   name?: string;
   muscle?: MuscleGroup | string;
   equipment?: Equipment | string;
-  exercise?: { name: string; muscleGroup: MuscleGroup | string; equipment?: Equipment | string };
+  exercise?: {
+    name: string;
+    muscleGroup: MuscleGroup | string;
+    equipment?: Equipment | string;
+    thumbnailUrl?: string;
+    gifUrl?: string;
+  };
+  thumbnailUrl?: string;
   size?: number;
   className?: string;
 }
@@ -41,12 +48,16 @@ export function ExerciseThumbnail({
   muscle: propMuscle,
   equipment: propEquipment,
   exercise,
+  thumbnailUrl: propThumb,
   size = 44,
   className,
 }: ExerciseThumbnailProps) {
   const name = exercise ? exercise.name : (propName ?? '');
   const muscle = exercise ? exercise.muscleGroup : (propMuscle ?? 'General');
   const equipment = exercise ? (exercise.equipment ?? 'Barbell') : (propEquipment ?? 'Barbell');
+  const thumbUrl = propThumb || exercise?.thumbnailUrl;
+  const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const type = getExerciseTypeKey(name, muscle, equipment);
 
   const colors: Record<string, { bg: string; fill: string; border: string }> = {
@@ -71,85 +82,98 @@ export function ExerciseThumbnail({
         className,
       )}
     >
-      <svg width={size * 0.65} height={size * 0.65} viewBox="0 0 36 36" fill="none">
-        {type === 'chest_press' && (
-          <g stroke={scheme.fill} strokeWidth="2.2" strokeLinecap="round">
-            {/* Barbell & Plates */}
-            <line x1="4" y1="18" x2="32" y2="18" />
-            <line x1="8" y1="13" x2="8" y2="23" strokeWidth="2.8" />
-            <line x1="28" y1="13" x2="28" y2="23" strokeWidth="2.8" />
-            {/* Lifter Bench Chest silhouette */}
-            <circle cx="18" cy="18" r="4" fill={scheme.fill} stroke="none" opacity="0.8" />
-          </g>
-        )}
-        {type === 'squat' && (
-          <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
-            <line x1="6" y1="10" x2="30" y2="10" strokeWidth="2.4" />
-            <circle cx="18" cy="12" r="3.5" fill={scheme.fill} stroke="none" />
-            <path d="M 18 16 L 18 24 L 14 30 M 18 24 L 22 30" />
-            <line x1="7" y1="7" x2="7" y2="13" strokeWidth="2.8" />
-            <line x1="29" y1="7" x2="29" y2="13" strokeWidth="2.8" />
-          </g>
-        )}
-        {type === 'deadlift' && (
-          <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
-            <line x1="4" y1="26" x2="32" y2="26" strokeWidth="2.4" />
-            <line x1="6" y1="21" x2="6" y2="31" strokeWidth="3" />
-            <line x1="30" y1="21" x2="30" y2="31" strokeWidth="3" />
-            <circle cx="18" cy="10" r="3.5" fill={scheme.fill} stroke="none" />
-            <path d="M 18 14 L 18 22 L 14 26 M 18 22 L 22 26" />
-          </g>
-        )}
-        {type === 'pulldown' && (
-          <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
-            <path d="M 6 8 Q 18 12 30 8" strokeWidth="2.5" />
-            <line x1="18" y1="4" x2="18" y2="10" />
-            <circle cx="18" cy="18" r="3.5" fill={scheme.fill} stroke="none" />
-            <path d="M 12 11 L 18 19 L 24 11" />
-          </g>
-        )}
-        {type === 'row' && (
-          <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
-            <circle cx="13" cy="11" r="3.5" fill={scheme.fill} stroke="none" />
-            <path d="M 15 14 L 23 20 L 26 29 M 20 23 L 15 29" />
-            <line x1="22" y1="15" x2="28" y2="25" strokeWidth="2.5" />
-          </g>
-        )}
-        {type === 'overhead_press' && (
-          <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
-            <line x1="4" y1="8" x2="32" y2="8" strokeWidth="2.4" />
-            <line x1="6" y1="5" x2="6" y2="11" strokeWidth="2.8" />
-            <line x1="30" y1="5" x2="30" y2="11" strokeWidth="2.8" />
-            <circle cx="18" cy="16" r="3.5" fill={scheme.fill} stroke="none" />
-            <path d="M 18 20 L 18 31" />
-            <path d="M 12 9 L 18 19 L 24 9" />
-          </g>
-        )}
-        {type === 'curl' && (
-          <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
-            <circle cx="18" cy="10" r="3.5" fill={scheme.fill} stroke="none" />
-            <path d="M 18 14 L 18 28" />
-            <path d="M 18 17 L 12 21 L 13 14" strokeWidth="2.4" />
-            <circle cx="13" cy="13" r="2" fill={scheme.fill} stroke="none" />
-          </g>
-        )}
-        {type === 'triceps' && (
-          <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
-            <circle cx="18" cy="10" r="3.5" fill={scheme.fill} stroke="none" />
-            <line x1="18" y1="14" x2="18" y2="28" />
-            <path d="M 18 17 L 23 22 L 23 28" strokeWidth="2.4" />
-          </g>
-        )}
-        {(type === 'lateral_raise' || type === 'general') && (
-          <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
-            <circle cx="18" cy="10" r="3.5" fill={scheme.fill} stroke="none" />
-            <line x1="18" y1="14" x2="18" y2="28" />
-            <path d="M 6 18 Q 18 14 30 18" strokeWidth="2.5" />
-            <circle cx="6" cy="18" r="2" fill={scheme.fill} stroke="none" />
-            <circle cx="30" cy="18" r="2" fill={scheme.fill} stroke="none" />
-          </g>
-        )}
-      </svg>
+      {thumbUrl && !imgError && (
+        <img
+          src={thumbUrl}
+          alt={name}
+          loading="lazy"
+          onLoad={() => setImgLoaded(true)}
+          onError={() => setImgError(true)}
+          className={cn(
+            'absolute inset-0 h-full w-full object-cover transition-opacity duration-200',
+            imgLoaded ? 'opacity-100' : 'opacity-0',
+          )}
+        />
+      )}
+      {(!thumbUrl || imgError || !imgLoaded) && (
+        <svg width={size * 0.65} height={size * 0.65} viewBox="0 0 36 36" fill="none">
+          {type === 'chest_press' && (
+            <g stroke={scheme.fill} strokeWidth="2.2" strokeLinecap="round">
+              <line x1="4" y1="18" x2="32" y2="18" />
+              <line x1="8" y1="13" x2="8" y2="23" strokeWidth="2.8" />
+              <line x1="28" y1="13" x2="28" y2="23" strokeWidth="2.8" />
+              <circle cx="18" cy="18" r="4" fill={scheme.fill} stroke="none" opacity="0.8" />
+            </g>
+          )}
+          {type === 'squat' && (
+            <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
+              <line x1="6" y1="10" x2="30" y2="10" strokeWidth="2.4" />
+              <circle cx="18" cy="12" r="3.5" fill={scheme.fill} stroke="none" />
+              <path d="M 18 16 L 18 24 L 14 30 M 18 24 L 22 30" />
+              <line x1="7" y1="7" x2="7" y2="13" strokeWidth="2.8" />
+              <line x1="29" y1="7" x2="29" y2="13" strokeWidth="2.8" />
+            </g>
+          )}
+          {type === 'deadlift' && (
+            <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
+              <line x1="4" y1="26" x2="32" y2="26" strokeWidth="2.4" />
+              <line x1="6" y1="21" x2="6" y2="31" strokeWidth="3" />
+              <line x1="30" y1="21" x2="30" y2="31" strokeWidth="3" />
+              <circle cx="18" cy="10" r="3.5" fill={scheme.fill} stroke="none" />
+              <path d="M 18 14 L 18 22 L 14 26 M 18 22 L 22 26" />
+            </g>
+          )}
+          {type === 'pulldown' && (
+            <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
+              <path d="M 6 8 Q 18 12 30 8" strokeWidth="2.5" />
+              <line x1="18" y1="4" x2="18" y2="10" />
+              <circle cx="18" cy="18" r="3.5" fill={scheme.fill} stroke="none" />
+              <path d="M 12 11 L 18 19 L 24 11" />
+            </g>
+          )}
+          {type === 'row' && (
+            <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
+              <circle cx="13" cy="11" r="3.5" fill={scheme.fill} stroke="none" />
+              <path d="M 15 14 L 23 20 L 26 29 M 20 23 L 15 29" />
+              <line x1="22" y1="15" x2="28" y2="25" strokeWidth="2.5" />
+            </g>
+          )}
+          {type === 'overhead_press' && (
+            <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
+              <line x1="4" y1="8" x2="32" y2="8" strokeWidth="2.4" />
+              <line x1="6" y1="5" x2="6" y2="11" strokeWidth="2.8" />
+              <line x1="30" y1="5" x2="30" y2="11" strokeWidth="2.8" />
+              <circle cx="18" cy="16" r="3.5" fill={scheme.fill} stroke="none" />
+              <path d="M 18 20 L 18 31" />
+              <path d="M 12 9 L 18 19 L 24 9" />
+            </g>
+          )}
+          {type === 'curl' && (
+            <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
+              <circle cx="18" cy="10" r="3.5" fill={scheme.fill} stroke="none" />
+              <path d="M 18 14 L 18 28" />
+              <path d="M 18 17 L 12 21 L 13 14" strokeWidth="2.4" />
+              <circle cx="13" cy="13" r="2" fill={scheme.fill} stroke="none" />
+            </g>
+          )}
+          {type === 'triceps' && (
+            <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
+              <circle cx="18" cy="10" r="3.5" fill={scheme.fill} stroke="none" />
+              <line x1="18" y1="14" x2="18" y2="28" />
+              <path d="M 18 17 L 23 22 L 23 28" strokeWidth="2.4" />
+            </g>
+          )}
+          {(type === 'lateral_raise' || type === 'general') && (
+            <g stroke={scheme.fill} strokeWidth="2" strokeLinecap="round">
+              <circle cx="18" cy="10" r="3.5" fill={scheme.fill} stroke="none" />
+              <line x1="18" y1="14" x2="18" y2="28" />
+              <path d="M 6 18 Q 18 14 30 18" strokeWidth="2.5" />
+              <circle cx="6" cy="18" r="2" fill={scheme.fill} stroke="none" />
+              <circle cx="30" cy="18" r="2" fill={scheme.fill} stroke="none" />
+            </g>
+          )}
+        </svg>
+      )}
     </div>
   );
 }
@@ -175,33 +199,22 @@ export function AnimatedDemonstration({
 }: AnimatedDemonstrationProps) {
   const [isPlaying, setIsPlaying] = useState(true);
   const [frame, setFrame] = useState(0);
-  const [imgFrame, setImgFrame] = useState(0);
+  const [imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
 
   const type = getExerciseTypeKey(name, muscle, equipment);
 
-  // SVG vector animation loop
+  // SVG vector animation loop (fallback)
   useEffect(() => {
     if (!isPlaying) return;
     const interval = window.setInterval(() => {
-      setFrame((f) => (f + 1) % 40); // 40-step continuous cycle
-    }, 50); // ~20 fps smooth loop
+      setFrame((f) => (f + 1) % 40);
+    }, 50);
     return () => window.clearInterval(interval);
   }, [isPlaying]);
 
-  // Two-frame exercise demonstration cycle (from free-exercise-db)
-  useEffect(() => {
-    if (!isPlaying || !gifUrl || imgError) return;
-    const timer = window.setInterval(() => {
-      setImgFrame((f) => (f === 0 ? 1 : 0));
-    }, 700);
-    return () => window.clearInterval(timer);
-  }, [isPlaying, gifUrl, imgError]);
-
-  const frame0 = gifUrl || thumbnailUrl;
-  const frame1 = frame0 ? frame0.replace(/\/0\.jpg$/, '/1.jpg') : undefined;
-  const currentImgSrc = imgFrame === 0 ? frame0 : frame1;
-  const showImage = !imgError && !!currentImgSrc;
+  const activeMediaUrl = isPlaying ? (gifUrl || thumbnailUrl) : (thumbnailUrl || gifUrl);
+  const showImage = !imgError && !!activeMediaUrl;
 
   // Sine-wave oscillation for smooth vector movement between 0 and 1
   const progress = (Math.sin((frame / 40) * Math.PI * 2) + 1) / 2;
@@ -216,26 +229,41 @@ export function AnimatedDemonstration({
       {/* Top Banner: Full-width white card */}
       <div className="relative flex h-56 w-full items-center justify-center bg-white p-3">
         {/* Play / Pause Toggle Button */}
-        <button
-          onClick={() => setIsPlaying((p) => !p)}
-          aria-label={isPlaying ? 'Pause animation' : 'Play animation'}
-          className="absolute top-3 right-3 z-20 grid h-9 w-9 place-items-center rounded-full bg-zinc-900/80 text-white border border-white/20 shadow-lg backdrop-blur-md transition active:scale-90 hover:bg-zinc-900"
-        >
-          {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
-        </button>
+        {gifUrl && (
+          <button
+            onClick={() => setIsPlaying((p) => !p)}
+            aria-label={isPlaying ? 'Pause animation' : 'Play animation'}
+            className="absolute top-3 right-3 z-20 grid h-9 w-9 place-items-center rounded-full bg-zinc-900/80 text-white border border-white/20 shadow-lg backdrop-blur-md transition active:scale-90 hover:bg-zinc-900"
+          >
+            {isPlaying ? <Pause size={16} fill="currentColor" /> : <Play size={16} fill="currentColor" />}
+          </button>
+        )}
 
-        {showImage && currentImgSrc ? (
-          <img
-            src={currentImgSrc}
-            alt={name}
-            onError={() => setImgError(true)}
-            className="h-full w-full object-contain select-none"
-          />
+        {showImage ? (
+          <div className="relative h-full w-full flex items-center justify-center">
+            {!imgLoaded && (
+              <div className="absolute inset-0 flex items-center justify-center bg-zinc-50">
+                <div className="h-7 w-7 animate-spin rounded-full border-2 border-brand border-t-transparent" />
+              </div>
+            )}
+            <img
+              src={activeMediaUrl}
+              alt={name}
+              loading="eager"
+              onLoad={() => setImgLoaded(true)}
+              onError={() => setImgError(true)}
+              className={cn(
+                'h-full w-full object-contain select-none transition-opacity duration-200',
+                imgLoaded ? 'opacity-100' : 'opacity-0',
+              )}
+            />
+          </div>
         ) : (
           /* Dynamic Vector Movement Renderer (Fallback) */
           <svg width="220" height="180" viewBox="0 0 200 160" className="overflow-visible select-none">
             {/* Floor / Platform */}
             <line x1="20" y1="140" x2="180" y2="140" stroke="#e4e4e7" strokeWidth="2" strokeDasharray="4 4" />
+
 
           {type === 'chest_press' && (
             <g>
