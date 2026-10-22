@@ -112,6 +112,8 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
   const [calendarFocusDate, setCalendarFocusDate] = useState<Date | null>(null);
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
   const [backupSheetOpen, setBackupSheetOpen] = useState(false);
+  const [isImportingDirect, setIsImportingDirect] = useState(false);
+  const profileHevyInputRef = useRef<HTMLInputElement>(null);
 
   // Social & Friend Comparison state
   const [socialDirectoryOpen, setSocialDirectoryOpen] = useState(false);
@@ -258,6 +260,54 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
         toast('Workout deleted', 'info');
       },
     });
+  };
+
+  const handleDirectCSVImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsImportingDirect(true);
+    try {
+      if (!currentUser) {
+        toast('Giriş yapmanız gerekiyor', 'error');
+        return;
+      }
+      const text = await file.text();
+      const catalog = await db.exercises.toArray();
+      const parseResult = await parseHevyWorkoutsCSV(text, {
+        userId: currentUser.id,
+        catalog,
+        userProfile: {
+          weightKg: currentUser.weightKg,
+          heightCm: currentUser.heightCm,
+          age: currentUser.age,
+          gender: currentUser.gender,
+          bodyFatPercentage: currentUser.bodyFatPercentage,
+        },
+      });
+
+      if (parseResult.workouts.length === 0) {
+        toast('Geçerli antrenman verisi bulunamadı (.csv dosyasını kontrol edin)', 'error');
+        return;
+      }
+
+      const syncResult = await importHevyWorkouts(
+        currentUser.id,
+        parseResult.workouts,
+        parseResult.createdExercises,
+      );
+
+      const msg = syncResult.importedCount > 0
+        ? `${syncResult.importedCount} antrenman verisi başarıyla içe aktarıldı ve buluta senkronize edildi!${
+            syncResult.skippedCount > 0 ? ` (${syncResult.skippedCount} mevcut antrenman atlandı)` : ''
+          }`
+        : 'Antrenman verileri başarıyla içe aktarıldı ve buluta senkronize edildi!';
+      toast(msg, 'success', 5000);
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'CSV dosyası içe aktarılamadı', 'error');
+    } finally {
+      setIsImportingDirect(false);
+      if (profileHevyInputRef.current) profileHevyInputRef.current.value = '';
+    }
   };
 
   return (
@@ -638,6 +688,46 @@ export function ProfilePage({ onNavigateTab }: { onNavigateTab?: (tab: 'workout'
                   {workoutsThisMonth} workout{workoutsThisMonth === 1 ? '' : 's'} this month
                 </div>
               </div>
+            </button>
+          </div>
+        </section>
+
+        {/* Data Management & CSV Workout Import Section */}
+        <section className="rounded-3xl border border-white/[0.06] bg-zinc-900/90 p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3.5 min-w-0">
+              <div className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-brand/15 text-brand shadow-sm">
+                <FileSpreadsheet size={22} />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="text-[17px] font-bold text-zinc-100">Veri Yönetimi</h3>
+                  <span className="rounded-md bg-brand/15 px-1.5 py-0.5 text-[10px] font-extrabold text-brand border border-brand/25">
+                    CSV / HEVY
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-[12px] text-zinc-400">
+                  Antrenman geçmişinizi (.csv) aktarın ve buluta eşitleyin
+                </p>
+              </div>
+            </div>
+
+            <input
+              ref={profileHevyInputRef}
+              type="file"
+              accept=".csv,text/csv,text/comma-separated-values"
+              onChange={handleDirectCSVImport}
+              className="hidden"
+            />
+            <button
+              id="profile-import-csv-direct-btn"
+              onClick={() => profileHevyInputRef.current?.click()}
+              disabled={isImportingDirect}
+              className="flex items-center gap-1.5 rounded-xl bg-brand px-3.5 py-2 text-[13px] font-bold text-white shadow-md shadow-brand/20 transition active:scale-95 hover:bg-brand/90 disabled:opacity-50 shrink-0"
+              title="CSV Antrenman Verilerini İçe Aktar"
+            >
+              <FileUp size={15} />
+              <span>{isImportingDirect ? 'Aktarılıyor…' : 'İçe Aktar'}</span>
             </button>
           </div>
         </section>
